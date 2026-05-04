@@ -12,15 +12,13 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import android.webkit.CookieManager;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/**
- * JavaScript bridge object exposed as "Android" to main.html.
- * All methods annotated with @JavascriptInterface are callable from JS.
- */
 public class AndroidBridge {
 
     private static final String PREFS_NAME = "pvp_manager_prefs";
@@ -36,8 +34,6 @@ public class AndroidBridge {
     private final WebView uiWebView;
     private final SharedPreferences prefs;
     private final Handler mainHandler;
-
-    // In-memory log buffer
     private final StringBuilder logBuffer = new StringBuilder();
 
     public AndroidBridge(Context context, WebView gameWebView, WebView uiWebView) {
@@ -47,10 +43,6 @@ public class AndroidBridge {
         this.prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
-
-    // -------------------------------------------------------------------------
-    // LOGIN / LOGOUT
-    // -------------------------------------------------------------------------
 
     @JavascriptInterface
     public void openLogin() {
@@ -63,7 +55,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void logout() {
-        // Stop bot and clear session
         prefs.edit().putBoolean(KEY_RUNNING, false).apply();
         prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
         CookieHelper.clearAll();
@@ -71,21 +62,17 @@ public class AndroidBridge {
         notifyUiStateChanged();
     }
 
-    // -------------------------------------------------------------------------
-    // SESSION VERIFICATION (called from native after DOM check)
-    // -------------------------------------------------------------------------
-
     @JavascriptInterface
     public void setConnected(boolean connected) {
-        appendLog("system", "setConnected called with: " + connected);
+        appendLog("system", "setConnected(" + connected + ")");
         if (connected) {
             prefs.edit().putBoolean(KEY_SESSION_VERIFIED, true)
                        .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
                        .apply();
-            appendLog("system", "Session verified flag SAVED. Connection established.");
+            appendLog("system", "✅ Session flag saved (connected)");
         } else {
             prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
-            appendLog("system", "Session verification FAILED — flag cleared.");
+            appendLog("system", "❌ Session flag cleared (disconnected)");
         }
         notifyUiStateChanged();
     }
@@ -98,20 +85,26 @@ public class AndroidBridge {
         return verified && fresh;
     }
 
-    // -------------------------------------------------------------------------
-    // STATE
-    // -------------------------------------------------------------------------
+    @JavascriptInterface
+    public void dumpCookies() {
+        appendLog("system", "=== COOKIE DUMP START ===");
+        String cmCookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+        appendLog("debug", "CookieManager cookies (length " + (cmCookies == null ? 0 : cmCookies.length()) + "): " +
+                  (cmCookies != null ? (cmCookies.length() > 200 ? cmCookies.substring(0,200)+"..." : cmCookies) : "null"));
+
+        if (gameWebView != null) {
+            gameWebView.evaluateJavascript("document.cookie", value -> {
+                appendLog("debug", "gameWebView document.cookie: " + value);
+            });
+        }
+        appendLog("system", "=== COOKIE DUMP END ===");
+    }
 
     @JavascriptInterface
     public String getState() {
         try {
             JSONObject state = new JSONObject();
-
             boolean connected = isSessionVerified();
-            if (!connected && CookieHelper.isConnected()) {
-                appendLog("debug", "getState: fallback cookie check returned true, but session flag false. Ignoring.");
-                // We do NOT set connected=true here because the flag is the source of truth.
-            }
             state.put("connected", connected);
             appendLog("debug", "getState: connected=" + connected);
 
@@ -119,20 +112,17 @@ public class AndroidBridge {
             if (running && !connected) {
                 prefs.edit().putBoolean(KEY_RUNNING, false).apply();
                 running = false;
-                appendLog("system", "Session expired — bot stopped automatically.");
+                appendLog("system", "Session expired — bot stopped");
             }
             state.put("running", running);
-
             state.put("tab", prefs.getString("active_tab", "battle"));
 
             JSONObject config = new JSONObject();
             config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
-            config.put("pollIntervalMs", Integer.parseInt(
-                    prefs.getString(KEY_POLL_INTERVAL, "1500")));
+            config.put("pollIntervalMs", Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")));
             state.put("config", config);
 
-            String strategyJson = prefs.getString(KEY_STRATEGY,
-                    "{\"enabled\":false,\"entries\":[]}");
+            String strategyJson = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
             state.put("strategy", new JSONObject(strategyJson));
 
             state.put("logs", logBuffer.toString());
@@ -140,21 +130,16 @@ public class AndroidBridge {
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
                 JSONObject live = new JSONObject(cachedLive);
-                state.put("match", live.optJSONObject("match") != null
-                        ? live.getJSONObject("match") : new JSONObject());
-                state.put("stats", live.optJSONObject("stats") != null
-                        ? live.getJSONObject("stats") : new JSONObject());
-                state.put("skillList", live.optJSONArray("skillList") != null
-                        ? live.getJSONArray("skillList") : new JSONArray());
-                state.put("matchHistory", live.optJSONArray("matchHistory") != null
-                        ? live.getJSONArray("matchHistory") : new JSONArray());
+                state.put("match", live.optJSONObject("match") != null ? live.getJSONObject("match") : new JSONObject());
+                state.put("stats", live.optJSONObject("stats") != null ? live.getJSONObject("stats") : new JSONObject());
+                state.put("skillList", live.optJSONArray("skillList") != null ? live.getJSONArray("skillList") : new JSONArray());
+                state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
             } else {
                 state.put("match", new JSONObject("{\"active\":false}"));
                 state.put("stats", new JSONObject());
                 state.put("skillList", new JSONArray());
                 state.put("matchHistory", new JSONArray());
             }
-
             return state.toString();
         } catch (JSONException e) {
             appendLog("error", "getState JSON error: " + e.getMessage());
@@ -166,49 +151,40 @@ public class AndroidBridge {
     public void refreshLiveState() {
         mainHandler.post(() -> {
             if (gameWebView != null) {
-                gameWebView.evaluateJavascript(
-                        "(function(){ return JSON.stringify(window.__pvpmState || null); })()",
-                        value -> {
-                            if (value != null && !value.equals("null")) {
-                                try {
-                                    String unquoted = value;
-                                    if (unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
-                                        unquoted = unquoted.substring(1, unquoted.length() - 1)
-                                                .replace("\\\"", "\"")
-                                                .replace("\\\\", "\\")
-                                                .replace("\\n", "\n");
-                                    }
-                                    prefs.edit().putString("cached_live_state", unquoted).apply();
-                                } catch (Exception e) {
-                                    appendLog("error", "refreshLiveState parse error: " + e.getMessage());
+                gameWebView.evaluateJavascript("(function(){ return JSON.stringify(window.__pvpmState || null); })()",
+                    value -> {
+                        if (value != null && !value.equals("null")) {
+                            try {
+                                String unquoted = value;
+                                if (unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
+                                    unquoted = unquoted.substring(1, unquoted.length() - 1)
+                                            .replace("\\\"", "\"")
+                                            .replace("\\\\", "\\")
+                                            .replace("\\n", "\n");
                                 }
+                                prefs.edit().putString("cached_live_state", unquoted).apply();
+                            } catch (Exception e) {
+                                appendLog("error", "refreshLiveState parse error: " + e.getMessage());
                             }
-                        });
+                        }
+                    });
             }
         });
     }
 
-    // -------------------------------------------------------------------------
-    // BOT CONTROL
-    // -------------------------------------------------------------------------
-
     @JavascriptInterface
     public void setRunning(boolean running) {
         if (running && !isSessionVerified()) {
-            appendLog("system", "Cannot start bot — not connected (session flag false).");
+            appendLog("system", "Cannot start bot — not connected");
             notifyUiStateChanged();
             return;
         }
         prefs.edit().putBoolean(KEY_RUNNING, running).apply();
         String js = "if(window.__pvpmSetRunning) window.__pvpmSetRunning(" + running + ");";
         evaluateInGameWebView(js);
-        appendLog("system", running ? "Bot started." : "Bot stopped.");
+        appendLog("system", running ? "Bot started" : "Bot stopped");
         notifyUiStateChanged();
     }
-
-    // -------------------------------------------------------------------------
-    // STRATEGY
-    // -------------------------------------------------------------------------
 
     @JavascriptInterface
     public void setStrategyEnabled(boolean enabled) {
@@ -218,9 +194,7 @@ public class AndroidBridge {
             obj.put("enabled", enabled);
             prefs.edit().putString(KEY_STRATEGY, obj.toString()).apply();
             String escaped = obj.toString().replace("'", "\\'");
-            evaluateInGameWebView(
-                "localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');"
-            );
+            evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');");
         } catch (JSONException e) {
             appendLog("system", "Strategy error: " + e.getMessage());
         }
@@ -235,25 +209,17 @@ public class AndroidBridge {
             obj.put("entries", entries);
             prefs.edit().putString(KEY_STRATEGY, obj.toString()).apply();
             String escaped = obj.toString().replace("'", "\\'");
-            evaluateInGameWebView(
-                "localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');"
-            );
+            evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');");
         } catch (JSONException e) {
             appendLog("system", "saveStrategy error: " + e.getMessage());
         }
     }
 
-    // -------------------------------------------------------------------------
-    // CONFIG
-    // -------------------------------------------------------------------------
-
     @JavascriptInterface
     public void setConfigBool(String key, boolean value) {
         if ("debug_logs".equals(key)) {
             prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).apply();
-            evaluateInGameWebView(
-                "localStorage.setItem('et_pvp_debug_logs', '" + value + "');"
-            );
+            evaluateInGameWebView("localStorage.setItem('et_pvp_debug_logs', '" + value + "');");
         }
     }
 
@@ -275,28 +241,21 @@ public class AndroidBridge {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // LOGS
-    // -------------------------------------------------------------------------
-
     @JavascriptInterface
     public void clearLogs() {
         logBuffer.setLength(0);
+        appendLog("system", "Logs cleared");
     }
 
     @JavascriptInterface
     public void copyLogs() {
-        ClipboardManager clipboard =
-                (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
             ClipData clip = ClipData.newPlainText("PvP Manager Logs", logBuffer.toString());
             clipboard.setPrimaryClip(clip);
+            appendLog("system", "Logs copied");
         }
     }
-
-    // -------------------------------------------------------------------------
-    // NAVIGATION / SYSTEM
-    // -------------------------------------------------------------------------
 
     @JavascriptInterface
     public void openSettings() {
@@ -317,10 +276,6 @@ public class AndroidBridge {
         openUrl("https://demonicscans.org/pvp_battle.php?match_id=" + matchId);
     }
 
-    // -------------------------------------------------------------------------
-    // HELPERS
-    // -------------------------------------------------------------------------
-
     private void openUrl(String url) {
         mainHandler.post(() -> {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -339,9 +294,9 @@ public class AndroidBridge {
 
     public void appendLog(String type, String message) {
         long ts = System.currentTimeMillis();
-        logBuffer.append(ts).append("|").append(type).append("|").append(message).append("\n");
-        String s = logBuffer.toString();
-        String[] lines = s.split("\n");
+        String logLine = ts + "|" + type + "|" + message;
+        logBuffer.append(logLine).append("\n");
+        String[] lines = logBuffer.toString().split("\n");
         if (lines.length > 500) {
             StringBuilder trimmed = new StringBuilder();
             for (int i = lines.length - 400; i < lines.length; i++) {
@@ -350,15 +305,14 @@ public class AndroidBridge {
             logBuffer.setLength(0);
             logBuffer.append(trimmed);
         }
-        // Also print to logcat for debugging
-        android.util.Log.d("PvPManager", type + ": " + message);
+        Log.d("PvPManager", type + ": " + message);
+        notifyUiStateChanged();
     }
 
     private void notifyUiStateChanged() {
         mainHandler.post(() -> {
             if (uiWebView != null) {
-                uiWebView.evaluateJavascript(
-                        "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
         });
     }
