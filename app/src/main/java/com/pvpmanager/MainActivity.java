@@ -4,6 +4,8 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
@@ -124,12 +126,15 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 // Detect successful login: navigated away from login/register pages
+                // The site redirects to bookmarks after login — any demonicscans.org
+                // page that is NOT the login/register page means login succeeded.
                 if (!url.equals("about:blank")
                         && !url.contains("signin")
                         && !url.contains("login")
                         && !url.contains("register")
                         && url.contains("demonicscans.org")) {
-                    loginWebView.postDelayed(() -> destroyLogin(), 400);
+                    // Use 1200ms delay to give CookieManager time to persist cookies
+                    loginWebView.postDelayed(() -> destroyLogin(), 1200);
                 }
             }
         });
@@ -175,20 +180,35 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Hides the login overlay and reloads the game session.
+     * We wait 800 ms after flushing cookies so the CookieManager has time
+     * to persist the session cookies before gameWebView reloads pvp.php,
+     * and before the UI queries isConnected().
      */
     public void destroyLogin() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
         loginWebView.loadUrl("about:blank");
+
+        // Flush cookies first, then wait before doing anything else
         CookieManager.getInstance().flush();
 
-        if (gameWebView != null) {
-            gameWebView.loadUrl("https://demonicscans.org/pvp.php");
-        }
-        if (uiWebView != null) {
-            uiWebView.evaluateJavascript(
-                    "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-        }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            // Second flush to make sure cookies are fully persisted
+            CookieManager.getInstance().flush();
+
+            if (gameWebView != null) {
+                gameWebView.loadUrl("https://demonicscans.org/pvp.php");
+            }
+
+            // Wait another 600 ms for the game page to start loading,
+            // then tell the UI to refresh (so isConnected() sees the cookies)
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (uiWebView != null) {
+                    uiWebView.evaluateJavascript(
+                            "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                }
+            }, 600);
+        }, 800);
     }
 
     /**
