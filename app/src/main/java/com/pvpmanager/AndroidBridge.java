@@ -34,10 +34,6 @@ public class AndroidBridge {
     private final WebView uiWebView;
     private final SharedPreferences prefs;
     private final Handler mainHandler;
-
-    // FIX #2: logBuffer persists in-memory. appendLog() must NOT be called from
-    // methods that run on every tick (getState, isSessionVerified) — that feedback
-    // loop spams the buffer, pushing real entries out of the 300-line display window.
     private final StringBuilder logBuffer = new StringBuilder();
 
     public AndroidBridge(Context context, WebView gameWebView, WebView uiWebView) {
@@ -68,31 +64,19 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setConnected(boolean connected) {
-        boolean wasConnected = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
         if (connected) {
             prefs.edit()
                     .putBoolean(KEY_SESSION_VERIFIED, true)
                     .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
                     .apply();
-            if (!wasConnected) {
-                appendLog("system", "✅ Connected — session active");
-            }
+            appendLog("system", "✅ Connected — session active");
         } else {
-            if (wasConnected) {
-                appendLog("system", "❌ Disconnected — session cleared");
-            }
+            appendLog("system", "❌ Disconnected — session cleared");
             prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
         }
         notifyUiStateChanged();
     }
 
-    /**
-     * FIX #2: Removed appendLog() call from here.
-     * This method is invoked on every getState() call (every 2.5 s tick). Calling
-     * appendLog() inside it triggered notifyUiStateChanged() → __pvpmUiRefresh() →
-     * tick() → getState() → isSessionVerified() → appendLog() — a self-reinforcing
-     * loop that flooded logBuffer and scrolled real entries out of the 300-line view.
-     */
     public boolean isSessionVerified() {
         long ts = prefs.getLong(KEY_SESSION_TIMESTAMP, 0);
         boolean verified = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
@@ -108,7 +92,6 @@ public class AndroidBridge {
         int len = cmCookies == null ? 0 : cmCookies.length();
         appendLog("debug", "CookieManager length=" + len + ": " +
                 (cmCookies != null ? (len > 200 ? cmCookies.substring(0, 200) + "..." : cmCookies) : "null"));
-
         if (gameWebView != null) {
             gameWebView.evaluateJavascript("document.cookie", value ->
                     appendLog("debug", "gameWebView document.cookie: " + value));
@@ -120,8 +103,6 @@ public class AndroidBridge {
     public String getState() {
         try {
             JSONObject state = new JSONObject();
-
-            // FIX #2: No appendLog() here — just read the persisted flag silently.
             boolean connected = isSessionVerified();
             state.put("connected", connected);
 
@@ -142,7 +123,9 @@ public class AndroidBridge {
             String strategyJson = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
             state.put("strategy", new JSONObject(strategyJson));
 
-            state.put("logs", logBuffer.toString());
+            synchronized (logBuffer) {
+                state.put("logs", logBuffer.toString());
+            }
 
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
@@ -260,7 +243,9 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void clearLogs() {
-        logBuffer.setLength(0);
+        synchronized (logBuffer) {
+            logBuffer.setLength(0);
+        }
         appendLog("system", "Logs cleared");
     }
 
@@ -268,7 +253,11 @@ public class AndroidBridge {
     public void copyLogs() {
         ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
-            ClipData clip = ClipData.newPlainText("PvP Manager Logs", logBuffer.toString());
+            String logs;
+            synchronized (logBuffer) {
+                logs = logBuffer.toString();
+            }
+            ClipData clip = ClipData.newPlainText("PvP Manager Logs", logs);
             clipboard.setPrimaryClip(clip);
             appendLog("system", "Logs copied to clipboard");
         }
@@ -314,7 +303,6 @@ public class AndroidBridge {
         String logLine = ts + "|" + type + "|" + message;
         synchronized (logBuffer) {
             logBuffer.append(logLine).append("\n");
-            // Trim buffer: keep latest 400 of 500 entries to avoid unbounded growth.
             String[] lines = logBuffer.toString().split("\n");
             if (lines.length > 500) {
                 StringBuilder trimmed = new StringBuilder();
@@ -326,11 +314,7 @@ public class AndroidBridge {
             }
         }
         Log.d("PvPManager", type + ": " + message);
-        // FIX #2: Do NOT call notifyUiStateChanged() here — the poll loop (tick every
-        // 2.5 s) is sufficient for log delivery. Calling it per-append created the
-        // feedback loop: appendLog → notifyUi → tick → getState → appendLog → ...
-        // For critical events (setConnected, setRunning, logout) the caller explicitly
-        // calls notifyUiStateChanged() after the log.
+        // No immediate notifyUiStateChanged() – the poll tick will pick up logs
     }
 
     public void notifyUiStateChanged() {
