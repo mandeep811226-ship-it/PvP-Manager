@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PvP Manager</string>
+    <string name="notification_channel_name">PvP Manager</string>
+    <string name="notification_running">Running — tap to open</string>
+    <string name="btn_stop">Stop</string>
+    <string name="btn_start">Start</string>
+    <string name="btn_login">Login</string>
+    <string name="btn_logout">Logout</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+</resources>
