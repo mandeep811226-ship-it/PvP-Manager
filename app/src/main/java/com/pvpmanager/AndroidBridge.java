@@ -77,14 +77,15 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setConnected(boolean connected) {
+        appendLog("system", "setConnected called with: " + connected);
         if (connected) {
             prefs.edit().putBoolean(KEY_SESSION_VERIFIED, true)
                        .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
                        .apply();
-            appendLog("system", "Session verified — connected.");
+            appendLog("system", "Session verified flag SAVED. Connection established.");
         } else {
             prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
-            appendLog("system", "Session invalid — disconnected.");
+            appendLog("system", "Session verification FAILED — flag cleared.");
         }
         notifyUiStateChanged();
     }
@@ -92,11 +93,9 @@ public class AndroidBridge {
     public boolean isSessionVerified() {
         long ts = prefs.getLong(KEY_SESSION_TIMESTAMP, 0);
         boolean verified = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
-        // Session verification is considered valid for 10 minutes (keep fresh)
-        if (verified && (System.currentTimeMillis() - ts) < 10 * 60 * 1000) {
-            return true;
-        }
-        return false;
+        boolean fresh = (System.currentTimeMillis() - ts) < 10 * 60 * 1000;
+        appendLog("debug", "isSessionVerified: verified=" + verified + ", fresh=" + fresh);
+        return verified && fresh;
     }
 
     // -------------------------------------------------------------------------
@@ -108,15 +107,14 @@ public class AndroidBridge {
         try {
             JSONObject state = new JSONObject();
 
-            // Connected – use the verified flag from the DOM check
             boolean connected = isSessionVerified();
-            // Extra fallback: if the flag is false but CookieHelper says true, trust the flag anyway?
             if (!connected && CookieHelper.isConnected()) {
-                connected = true;
+                appendLog("debug", "getState: fallback cookie check returned true, but session flag false. Ignoring.");
+                // We do NOT set connected=true here because the flag is the source of truth.
             }
             state.put("connected", connected);
+            appendLog("debug", "getState: connected=" + connected);
 
-            // If session expired (no flag and cookies gone), stop the bot
             boolean running = prefs.getBoolean(KEY_RUNNING, false);
             if (running && !connected) {
                 prefs.edit().putBoolean(KEY_RUNNING, false).apply();
@@ -125,25 +123,20 @@ public class AndroidBridge {
             }
             state.put("running", running);
 
-            // Tab
             state.put("tab", prefs.getString("active_tab", "battle"));
 
-            // Config
             JSONObject config = new JSONObject();
             config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
             config.put("pollIntervalMs", Integer.parseInt(
                     prefs.getString(KEY_POLL_INTERVAL, "1500")));
             state.put("config", config);
 
-            // Strategy
             String strategyJson = prefs.getString(KEY_STRATEGY,
                     "{\"enabled\":false,\"entries\":[]}");
             state.put("strategy", new JSONObject(strategyJson));
 
-            // Logs
             state.put("logs", logBuffer.toString());
 
-            // Live match state
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
                 JSONObject live = new JSONObject(cachedLive);
@@ -164,6 +157,7 @@ public class AndroidBridge {
 
             return state.toString();
         } catch (JSONException e) {
+            appendLog("error", "getState JSON error: " + e.getMessage());
             return "{\"error\":\"" + e.getMessage() + "\"}";
         }
     }
@@ -186,7 +180,7 @@ public class AndroidBridge {
                                     }
                                     prefs.edit().putString("cached_live_state", unquoted).apply();
                                 } catch (Exception e) {
-                                    // ignore parse errors
+                                    appendLog("error", "refreshLiveState parse error: " + e.getMessage());
                                 }
                             }
                         });
@@ -200,9 +194,8 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setRunning(boolean running) {
-        // Guard: do not allow starting the bot without an active session.
         if (running && !isSessionVerified()) {
-            appendLog("system", "Cannot start bot — not connected.");
+            appendLog("system", "Cannot start bot — not connected (session flag false).");
             notifyUiStateChanged();
             return;
         }
@@ -357,6 +350,8 @@ public class AndroidBridge {
             logBuffer.setLength(0);
             logBuffer.append(trimmed);
         }
+        // Also print to logcat for debugging
+        android.util.Log.d("PvPManager", type + ": " + message);
     }
 
     private void notifyUiStateChanged() {
