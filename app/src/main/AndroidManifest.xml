@@ -29,10 +29,7 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".LoginActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <!-- LoginActivity removed: login is now an in-page WebView overlay inside MainActivity -->
 
         <service
             android:name=".PvpService"
