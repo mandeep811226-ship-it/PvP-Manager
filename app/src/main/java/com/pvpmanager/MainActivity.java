@@ -68,6 +68,8 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 injectUserScript(view);
                 CookieManager.getInstance().flush();
+                // After page finishes, verify if we are logged in and update the bridge
+                verifyGameWebViewSession();
             }
         });
         root.addView(gameWebView);
@@ -133,20 +135,15 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // Flush cookies on every page load so they are persisted incrementally.
-                // This ensures cookies are not lost if the user navigates away or the
-                // WebView is destroyed before we explicitly call flush().
                 CookieManager.getInstance().flush();
 
                 if (url == null) return;
 
-                // Make overlay visible once a real page has loaded
                 if (loginContainer.getVisibility() != View.VISIBLE
                         && url.startsWith("http")) {
                     loginContainer.setVisibility(View.VISIBLE);
                 }
 
-                // Update SAVE CONNECT button label based on current URL
                 updateSaveConnectLabel(url);
             }
         });
@@ -158,15 +155,12 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(root);
 
-        // Global cookie settings
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(gameWebView, true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(uiWebView, true);
 
-        // Load game page in background
         gameWebView.loadUrl("https://demonicscans.org/pvp.php");
 
-        // Start foreground service
         Intent serviceIntent = new Intent(this, PvpService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
@@ -265,66 +259,75 @@ public class MainActivity extends AppCompatActivity {
     // Public API
     // -------------------------------------------------------------------------
 
-    /**
-     * Called by AndroidBridge.openLogin().
-     * Opens the main site so the user can log in, then press SAVE CONNECT.
-     */
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
-        // Open main site — NOT signin.php directly — matches the reference APK flow.
         loginWebView.loadUrl("https://demonicscans.org");
         loginWebView.requestFocus();
     }
 
     /**
      * Called ONLY when the user explicitly presses SAVE CONNECT.
-     *
-     * Fix: Flush cookies FIRST (synchronously within this call), THEN hide the
-     * overlay, THEN navigate loginWebView to about:blank. The original code
-     * called destroyLogin() via postDelayed which navigated loginWebView to
-     * about:blank BEFORE the flush completed, tearing down the session context
-     * and losing cookies. Now the order is strictly: flush → hide → blank →
-     * reload game → refresh UI.
+     * Now with DOM‑based verification after reloading the game WebView.
      */
     public void saveConnect() {
+        // STEP 1: flush cookies
+        CookieManager.getInstance().flush();
 
-    // STEP 1: flush cookies while session is alive
-    CookieManager.getInstance().flush();
-
-    // STEP 2: VERIFY cookies exist BEFORE doing anything
-    String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-
-    if (cookies == null || cookies.length() < 10) {
-        // ❌ Do NOT close login if session not captured
-        return;
-    }
-
-    // STEP 3: hide overlay
-    if (loginContainer != null) {
-        loginContainer.setVisibility(View.INVISIBLE);
-    }
-
-    // STEP 4: destroy login WebView AFTER verification
-    if (loginWebView != null) {
-        loginWebView.loadUrl("about:blank");
-    }
-
-    // STEP 5: reload game WebView (IMPORTANT: use reload, not loadUrl)
-    if (gameWebView != null) {
-        gameWebView.reload();
-    }
-
-    // STEP 6: refresh UI after short delay
-    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-        if (uiWebView != null) {
-            uiWebView.evaluateJavascript(
-                "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();",
-                null
-            );
+        // STEP 2: capture any existing cookies
+        String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+        if (cookies == null || cookies.length() < 10) {
+            // Not enough cookie data – do not close overlay
+            return;
         }
-    }, 500);
-}
+
+        // STEP 3: hide overlay immediately (login WebView no longer needed)
+        if (loginContainer != null) {
+            loginContainer.setVisibility(View.INVISIBLE);
+        }
+
+        // STEP 4: blank the login WebView to release resources
+        if (loginWebView != null) {
+            loginWebView.loadUrl("about:blank");
+        }
+
+        // STEP 5: reload game WebView – this will trigger onPageFinished,
+        //         where we verify the session via DOM checks.
+        if (gameWebView != null) {
+            gameWebView.reload();
+        }
+
+        // STEP 6: if the verification fails (unlikely), fallback to a short timeout
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (bridge != null && !bridge.isSessionVerified()) {
+                // Still not verified – force a final check and refresh UI
+                verifyGameWebViewSession();
+            }
+        }, 3000);
+    }
+
+    /**
+     * Injects JavaScript into the game WebView to detect a logged‑in state.
+     * When a logout link or user menu is found, informs the bridge.
+     */
+    private void verifyGameWebViewSession() {
+        if (gameWebView == null || bridge == null) return;
+        String js =
+            "(function() {" +
+            "   var logoutLink = document.querySelector('a[href*=\"logout\"], a[href*=\"signout\"]');" +
+            "   var userMenu = document.querySelector('.user-dropdown, .player-name, .profile-link');" +
+            "   if (logoutLink || userMenu) { return 'connected'; }" +
+            "   return 'disconnected';" +
+            "})();";
+        gameWebView.evaluateJavascript(js, value -> {
+            if (value != null && value.contains("connected")) {
+                bridge.setConnected(true);
+            } else {
+                // Optionally set false, but do not overwrite a valid session that might be loading slowly.
+                // We only set false if we are absolutely sure (no retry needed here).
+            }
+        });
+    }
 
     /** Closes overlay without capturing session (Back / cancel). */
     private void closeLoginOverlay() {
@@ -333,8 +336,7 @@ public class MainActivity extends AppCompatActivity {
         if (loginWebView != null) {
             loginWebView.loadUrl("about:blank");
         }
-        // Refresh UI so connection state is re-read (it may already be connected
-        // from a prior session).
+        // Refresh UI – connection may already be active
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
