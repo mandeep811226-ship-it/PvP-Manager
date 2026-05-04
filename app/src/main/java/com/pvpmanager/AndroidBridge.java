@@ -34,6 +34,10 @@ public class AndroidBridge {
     private final WebView uiWebView;
     private final SharedPreferences prefs;
     private final Handler mainHandler;
+
+    // FIX #2: logBuffer persists in-memory. appendLog() must NOT be called from
+    // methods that run on every tick (getState, isSessionVerified) — that feedback
+    // loop spams the buffer, pushing real entries out of the 300-line display window.
     private final StringBuilder logBuffer = new StringBuilder();
 
     public AndroidBridge(Context context, WebView gameWebView, WebView uiWebView) {
@@ -58,55 +62,68 @@ public class AndroidBridge {
         prefs.edit().putBoolean(KEY_RUNNING, false).apply();
         prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
         CookieHelper.clearAll();
-        appendLog("system", "Logged out — cookies cleared.");
+        appendLog("system", "Logged out — cookies cleared");
         notifyUiStateChanged();
     }
 
     @JavascriptInterface
     public void setConnected(boolean connected) {
-        appendLog("system", "setConnected(" + connected + ")");
+        boolean wasConnected = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
         if (connected) {
-            prefs.edit().putBoolean(KEY_SESSION_VERIFIED, true)
-                       .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
-                       .apply();
-            appendLog("system", "✅ Session flag saved (connected)");
+            prefs.edit()
+                    .putBoolean(KEY_SESSION_VERIFIED, true)
+                    .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
+                    .apply();
+            if (!wasConnected) {
+                appendLog("system", "✅ Connected — session active");
+            }
         } else {
+            if (wasConnected) {
+                appendLog("system", "❌ Disconnected — session cleared");
+            }
             prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
-            appendLog("system", "❌ Session flag cleared (disconnected)");
         }
         notifyUiStateChanged();
     }
 
+    /**
+     * FIX #2: Removed appendLog() call from here.
+     * This method is invoked on every getState() call (every 2.5 s tick). Calling
+     * appendLog() inside it triggered notifyUiStateChanged() → __pvpmUiRefresh() →
+     * tick() → getState() → isSessionVerified() → appendLog() — a self-reinforcing
+     * loop that flooded logBuffer and scrolled real entries out of the 300-line view.
+     */
     public boolean isSessionVerified() {
         long ts = prefs.getLong(KEY_SESSION_TIMESTAMP, 0);
         boolean verified = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
         boolean fresh = (System.currentTimeMillis() - ts) < 10 * 60 * 1000;
-        appendLog("debug", "isSessionVerified: verified=" + verified + ", fresh=" + fresh);
         return verified && fresh;
     }
 
     @JavascriptInterface
     public void dumpCookies() {
-        appendLog("system", "=== COOKIE DUMP START ===");
+        appendLog("system", "=== COOKIE DUMP ===");
+        CookieManager.getInstance().flush();
         String cmCookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-        appendLog("debug", "CookieManager cookies (length " + (cmCookies == null ? 0 : cmCookies.length()) + "): " +
-                  (cmCookies != null ? (cmCookies.length() > 200 ? cmCookies.substring(0,200)+"..." : cmCookies) : "null"));
+        int len = cmCookies == null ? 0 : cmCookies.length();
+        appendLog("debug", "CookieManager length=" + len + ": " +
+                (cmCookies != null ? (len > 200 ? cmCookies.substring(0, 200) + "..." : cmCookies) : "null"));
 
         if (gameWebView != null) {
-            gameWebView.evaluateJavascript("document.cookie", value -> {
-                appendLog("debug", "gameWebView document.cookie: " + value);
-            });
+            gameWebView.evaluateJavascript("document.cookie", value ->
+                    appendLog("debug", "gameWebView document.cookie: " + value));
         }
-        appendLog("system", "=== COOKIE DUMP END ===");
+        appendLog("system", "=== END COOKIE DUMP ===");
     }
 
     @JavascriptInterface
     public String getState() {
         try {
             JSONObject state = new JSONObject();
+
+            // FIX #2: No appendLog() here — just read the persisted flag silently.
             boolean connected = isSessionVerified();
             state.put("connected", connected);
-            appendLog("debug", "getState: connected=" + connected);
 
             boolean running = prefs.getBoolean(KEY_RUNNING, false);
             if (running && !connected) {
@@ -142,7 +159,7 @@ public class AndroidBridge {
             }
             return state.toString();
         } catch (JSONException e) {
-            appendLog("error", "getState JSON error: " + e.getMessage());
+            Log.e("PvPManager", "getState JSON error: " + e.getMessage());
             return "{\"error\":\"" + e.getMessage() + "\"}";
         }
     }
@@ -152,22 +169,22 @@ public class AndroidBridge {
         mainHandler.post(() -> {
             if (gameWebView != null) {
                 gameWebView.evaluateJavascript("(function(){ return JSON.stringify(window.__pvpmState || null); })()",
-                    value -> {
-                        if (value != null && !value.equals("null")) {
-                            try {
-                                String unquoted = value;
-                                if (unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
-                                    unquoted = unquoted.substring(1, unquoted.length() - 1)
-                                            .replace("\\\"", "\"")
-                                            .replace("\\\\", "\\")
-                                            .replace("\\n", "\n");
+                        value -> {
+                            if (value != null && !value.equals("null")) {
+                                try {
+                                    String unquoted = value;
+                                    if (unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
+                                        unquoted = unquoted.substring(1, unquoted.length() - 1)
+                                                .replace("\\\"", "\"")
+                                                .replace("\\\\", "\\")
+                                                .replace("\\n", "\n");
+                                    }
+                                    prefs.edit().putString("cached_live_state", unquoted).apply();
+                                } catch (Exception e) {
+                                    Log.e("PvPManager", "refreshLiveState parse error: " + e.getMessage());
                                 }
-                                prefs.edit().putString("cached_live_state", unquoted).apply();
-                            } catch (Exception e) {
-                                appendLog("error", "refreshLiveState parse error: " + e.getMessage());
                             }
-                        }
-                    });
+                        });
             }
         });
     }
@@ -253,7 +270,7 @@ public class AndroidBridge {
         if (clipboard != null) {
             ClipData clip = ClipData.newPlainText("PvP Manager Logs", logBuffer.toString());
             clipboard.setPrimaryClip(clip);
-            appendLog("system", "Logs copied");
+            appendLog("system", "Logs copied to clipboard");
         }
     }
 
@@ -295,21 +312,28 @@ public class AndroidBridge {
     public void appendLog(String type, String message) {
         long ts = System.currentTimeMillis();
         String logLine = ts + "|" + type + "|" + message;
-        logBuffer.append(logLine).append("\n");
-        String[] lines = logBuffer.toString().split("\n");
-        if (lines.length > 500) {
-            StringBuilder trimmed = new StringBuilder();
-            for (int i = lines.length - 400; i < lines.length; i++) {
-                trimmed.append(lines[i]).append("\n");
+        synchronized (logBuffer) {
+            logBuffer.append(logLine).append("\n");
+            // Trim buffer: keep latest 400 of 500 entries to avoid unbounded growth.
+            String[] lines = logBuffer.toString().split("\n");
+            if (lines.length > 500) {
+                StringBuilder trimmed = new StringBuilder();
+                for (int i = lines.length - 400; i < lines.length; i++) {
+                    trimmed.append(lines[i]).append("\n");
+                }
+                logBuffer.setLength(0);
+                logBuffer.append(trimmed);
             }
-            logBuffer.setLength(0);
-            logBuffer.append(trimmed);
         }
         Log.d("PvPManager", type + ": " + message);
-        notifyUiStateChanged();
+        // FIX #2: Do NOT call notifyUiStateChanged() here — the poll loop (tick every
+        // 2.5 s) is sufficient for log delivery. Calling it per-append created the
+        // feedback loop: appendLog → notifyUi → tick → getState → appendLog → ...
+        // For critical events (setConnected, setRunning, logout) the caller explicitly
+        // calls notifyUiStateChanged() after the log.
     }
 
-    private void notifyUiStateChanged() {
+    public void notifyUiStateChanged() {
         mainHandler.post(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
