@@ -7,381 +7,115 @@
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{
-    --bg:#0a0612;
-    --bg2:#1a1422;
-    --bg3:#2a1f36;
-    --gold:#f2c072;
-    --gold-dim:rgba(242,192,114,0.15);
-    --gold-border:rgba(242,192,114,0.3);
-    --text:#f5e9d0;
-    --muted:#a39580;
-    --green:#22c55e;
-    --red:#ef4444;
-    --red-dim:rgba(239,68,68,0.15);
-    --blue:#60a5fa;
-    --orange:#fb923c;
-    --radius:10px;
-    --font:system-ui,-apple-system,'Segoe UI',sans-serif;
+    --bg:#0a0612;--bg2:#1a1422;--bg3:#2a1f36;
+    --gold:#f2c072;--gold-dim:rgba(242,192,114,0.15);--gold-border:rgba(242,192,114,0.3);
+    --text:#f5e9d0;--muted:#a39580;
+    --green:#22c55e;--red:#ef4444;--blue:#60a5fa;--orange:#fb923c;
+    --radius:10px;--font:system-ui,-apple-system,'Segoe UI',sans-serif;
   }
-  html,body{
-    height:100%;width:100%;
-    background:var(--bg);
-    color:var(--text);
-    font-family:var(--font);
-    font-size:14px;
-    overflow:hidden;
-  }
-  #app{
-    display:flex;
-    flex-direction:column;
-    height:100vh;
-    max-width:100vw;
-    overflow:hidden;
-  }
+  html,body{height:100%;width:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;overflow:hidden}
+  #app{display:flex;flex-direction:column;height:100vh;max-width:100vw;overflow:hidden}
 
-  /* ---- TOP BAR ---- */
-  #topbar{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    padding:10px 12px;
-    background:var(--bg2);
-    border-bottom:1px solid var(--gold-border);
-    flex-shrink:0;
-    flex-wrap:wrap;
-  }
-  #conn-dot{
-    width:10px;height:10px;
-    border-radius:50%;
-    background:var(--red);
-    flex-shrink:0;
-  }
+  /* TOP BAR */
+  #topbar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--gold-border);flex-shrink:0;flex-wrap:wrap}
+  #conn-dot{width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0}
   #conn-dot.on{background:var(--green)}
-  #conn-label{
-    font-size:12px;
-    color:var(--muted);
-    margin-right:4px;
-  }
+  #conn-label{font-size:12px;color:var(--muted);margin-right:4px}
   .spacer{flex:1}
-  .btn{
-    border:none;
-    border-radius:999px;
-    padding:7px 14px;
-    font-size:12px;
-    font-weight:600;
-    cursor:pointer;
-    font-family:var(--font);
-    white-space:nowrap;
-    transition:opacity 0.15s;
-  }
-  .btn:active{opacity:0.75}
+  .btn{border:none;border-radius:999px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:opacity 0.15s}
+  .btn:active{opacity:.75}
   .btn-gold{background:var(--gold);color:#0a0612}
   .btn-danger{background:var(--red);color:#fff}
   .btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--gold-border)}
   .btn-sm{padding:5px 10px;font-size:11px}
 
-  /* ---- STATS ROW ---- */
-  #stats-row{
-    display:flex;
-    gap:6px;
-    padding:8px 12px;
-    background:var(--bg);
-    overflow-x:auto;
-    flex-shrink:0;
-    scrollbar-width:none;
-  }
+  /* STATS ROW */
+  #stats-row{display:flex;gap:6px;padding:8px 12px;background:var(--bg);overflow-x:auto;flex-shrink:0;scrollbar-width:none}
   #stats-row::-webkit-scrollbar{display:none}
-  .stat-pill{
-    background:var(--bg2);
-    border:1px solid var(--gold-border);
-    border-radius:999px;
-    padding:4px 10px;
-    font-size:11px;
-    white-space:nowrap;
-    display:flex;
-    align-items:center;
-    gap:5px;
-  }
+  .stat-pill{background:var(--bg2);border:1px solid var(--gold-border);border-radius:999px;padding:4px 10px;font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:5px}
   .stat-pill-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
   .stat-pill-val{color:var(--gold);font-weight:700}
 
-  /* ---- HP BAR ---- */
-  #hp-section{
-    padding:10px 12px;
-    background:var(--bg2);
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    flex-shrink:0;
-  }
+  /* HP SECTION */
+  #hp-section{padding:10px 12px;background:var(--bg2);border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
   #hp-section.inactive{opacity:0.4;pointer-events:none}
-  .hp-combatants{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    margin-bottom:8px;
-    gap:6px;
-  }
-  .hp-fighter{
-    display:flex;
-    align-items:center;
-    gap:6px;
-    min-width:0;
-  }
+  .hp-combatants{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px}
+  .hp-fighter{display:flex;align-items:center;gap:6px;min-width:0}
   .hp-fighter.enemy{flex-direction:row-reverse}
-  .hp-avatar{
-    width:36px;height:36px;
-    border-radius:50%;
-    object-fit:cover;
-    border:2px solid var(--gold-border);
-    flex-shrink:0;
-    background:var(--bg3);
-  }
+  .hp-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--gold-border);flex-shrink:0;background:var(--bg3)}
   .hp-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
-  .hp-dual-bar{
-    display:flex;
-    height:14px;
-    background:var(--bg);
-    border-radius:999px;
-    overflow:hidden;
-    border:1px solid rgba(255,255,255,0.08);
-  }
-  .hp-labels{
-    display:flex;
-    justify-content:space-between;
-    font-size:10px;
-    color:var(--muted);
-    margin-top:3px;
-  }
+  .hp-dual-bar{display:flex;height:14px;background:var(--bg);border-radius:999px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)}
+  .hp-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px}
 
-  /* ---- TABS ---- */
-  #tab-bar{
-    display:flex;
-    background:var(--bg2);
-    border-bottom:1px solid var(--gold-border);
-    flex-shrink:0;
-  }
-  .tab-btn{
-    flex:1;
-    border:none;
-    background:transparent;
-    color:var(--muted);
-    font-size:12px;
-    font-weight:600;
-    padding:10px 4px;
-    cursor:pointer;
-    font-family:var(--font);
-    border-bottom:2px solid transparent;
-    transition:color 0.15s,border-color 0.15s;
-  }
-  .tab-btn.active{
-    color:var(--gold);
-    border-bottom-color:var(--gold);
-  }
+  /* TABS */
+  #tab-bar{display:flex;background:var(--bg2);border-bottom:1px solid var(--gold-border);flex-shrink:0}
+  .tab-btn{flex:1;border:none;background:transparent;color:var(--muted);font-size:12px;font-weight:600;padding:10px 4px;cursor:pointer;font-family:var(--font);border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+  .tab-btn.active{color:var(--gold);border-bottom-color:var(--gold)}
 
-  /* ---- TAB PANELS ---- */
-  #tab-panels{
-    flex:1;
-    overflow:hidden;
-    position:relative;
-  }
-  .tab-panel{
-    position:absolute;
-    inset:0;
-    overflow-y:auto;
-    padding:12px;
-    display:none;
-    flex-direction:column;
-    gap:10px;
-  }
+  /* TAB PANELS */
+  #tab-panels{flex:1;overflow:hidden;position:relative}
+  .tab-panel{position:absolute;inset:0;overflow-y:auto;padding:12px;display:none;flex-direction:column;gap:10px}
   .tab-panel.active{display:flex}
 
-  /* ---- BATTLE LOG ---- */
-  #log-container{
-    flex:1;
-    background:var(--bg2);
-    border-radius:var(--radius);
-    overflow-y:auto;
-    padding:8px 10px;
-    min-height:80px;
-    font-size:12px;
-    font-family:'Courier New',monospace;
-    border:1px solid rgba(255,255,255,0.06);
-  }
-  .log-entry{
-    display:flex;
-    gap:8px;
-    padding:2px 0;
-    border-bottom:1px solid rgba(255,255,255,0.04);
-    line-height:1.4;
-  }
+  /* BATTLE LOG */
+  #log-container{flex:1;background:var(--bg2);border-radius:var(--radius);overflow-y:auto;padding:8px 10px;min-height:80px;font-size:12px;font-family:'Courier New',monospace;border:1px solid rgba(255,255,255,0.06)}
+  .log-entry{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);line-height:1.4}
   .log-ts{color:var(--muted);flex-shrink:0;font-size:10px;margin-top:1px}
-  .log-badge{
-    flex-shrink:0;
-    border-radius:4px;
-    padding:1px 5px;
-    font-size:9px;
-    font-weight:700;
-    text-transform:uppercase;
-    align-self:flex-start;
-    margin-top:1px;
-  }
-  /* FIX: Added missing badge colour classes for all log types used by AndroidBridge */
+  .log-badge{flex-shrink:0;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;text-transform:uppercase;align-self:flex-start;margin-top:1px}
   .log-badge.info   {background:#333;color:#ccc}
-  .log-badge.debug  {background:rgba(96,165,250,0.15);color:#60a5fa}
+  .log-badge.debug  {background:rgba(96,165,250,0.18);color:#60a5fa}
   .log-badge.system {background:var(--gold-dim);color:var(--gold)}
   .log-badge.warning{background:rgba(251,146,60,0.2);color:#fb923c}
-  .log-badge.error  {background:rgba(239,68,68,0.2);color:#ef4444}
+  .log-badge.error  {background:rgba(239,68,68,0.22);color:#ef4444}
   .log-badge.win    {background:rgba(102,187,106,0.2);color:#66bb6a}
   .log-badge.loss   {background:rgba(239,83,80,0.2);color:#ef5350}
   .log-msg{color:var(--text);word-break:break-word;flex:1}
 
-  /* ---- STRATEGY TAB ---- */
-  .card{
-    background:var(--bg2);
-    border-radius:var(--radius);
-    border:1px solid rgba(255,255,255,0.07);
-    padding:12px;
-  }
-  .toggle-row{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-  }
+  /* STRATEGY */
+  .card{background:var(--bg2);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.07);padding:12px}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .toggle-label{font-size:13px;font-weight:600}
   .toggle-sub{font-size:11px;color:var(--muted);margin-top:2px}
-  .toggle{
-    position:relative;
-    width:44px;height:24px;
-    flex-shrink:0;
-  }
+  .toggle{position:relative;width:44px;height:24px;flex-shrink:0}
   .toggle input{opacity:0;width:0;height:0}
-  .toggle-track{
-    position:absolute;inset:0;
-    background:#444;
-    border-radius:999px;
-    cursor:pointer;
-    transition:background .2s;
-  }
+  .toggle-track{position:absolute;inset:0;background:#444;border-radius:999px;cursor:pointer;transition:background .2s}
   .toggle input:checked ~ .toggle-track{background:var(--gold)}
-  .toggle-thumb{
-    position:absolute;
-    top:3px;left:3px;
-    width:18px;height:18px;
-    background:#fff;
-    border-radius:50%;
-    transition:transform .2s;
-    pointer-events:none;
-  }
+  .toggle-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform .2s;pointer-events:none}
   .toggle input:checked ~ .toggle-track ~ .toggle-thumb{transform:translateX(20px)}
-
-  .strategy-entry{
-    background:var(--bg3);
-    border-radius:var(--radius);
-    border:1px solid var(--gold-border);
-    padding:10px;
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-  }
-  .entry-row{
-    display:flex;
-    align-items:center;
-    gap:6px;
-    flex-wrap:wrap;
-  }
+  .strategy-entry{background:var(--bg3);border-radius:var(--radius);border:1px solid var(--gold-border);padding:10px;display:flex;flex-direction:column;gap:8px}
+  .entry-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .entry-label{font-size:11px;color:var(--muted);white-space:nowrap}
-  select,input[type=number],input[type=text]{
-    background:var(--bg);
-    border:1px solid var(--gold-border);
-    border-radius:6px;
-    color:var(--text);
-    padding:5px 8px;
-    font-size:12px;
-    font-family:var(--font);
-    outline:none;
-  }
+  select,input[type=number],input[type=text]{background:var(--bg);border:1px solid var(--gold-border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--font);outline:none}
   select:focus,input:focus{border-color:var(--gold)}
-  .entry-actions{
-    display:flex;
-    gap:6px;
-    justify-content:flex-end;
-  }
+  .entry-actions{display:flex;gap:6px;justify-content:flex-end}
   .entry-actions .btn{padding:4px 8px;font-size:11px}
 
-  /* ---- HISTORY TAB ---- */
-  .match-row{
-    display:flex;
-    align-items:flex-start;
-    gap:8px;
-    padding:8px 0;
-    border-bottom:1px solid rgba(255,255,255,0.05);
-  }
-  .match-avatar{
-    width:30px;height:30px;
-    border-radius:50%;
-    object-fit:cover;
-    flex-shrink:0;
-    background:var(--bg3);
-  }
+  /* HISTORY */
+  .match-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+  .match-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg3)}
   .match-info{flex:1;min-width:0}
   .match-enemy{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .match-meta{font-size:10px;color:var(--muted)}
-  .match-pts{text-align:right;flex-shrink:0;font-size:11px;}
+  .match-pts{text-align:right;flex-shrink:0;font-size:11px}
   .pts-delta{font-weight:700}
   .pts-delta.pos{color:#66bb6a}
   .pts-delta.neg{color:#ef5350}
-  .result-badge{
-    border-radius:4px;
-    padding:2px 7px;
-    font-size:10px;
-    font-weight:700;
-    flex-shrink:0;
-    align-self:center;
-  }
-  .result-badge.win{background:rgba(102,187,106,0.2);color:#66bb6a}
+  .result-badge{border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;flex-shrink:0;align-self:center}
+  .result-badge.win {background:rgba(102,187,106,0.2);color:#66bb6a}
   .result-badge.loss{background:rgba(239,83,80,0.2);color:#ef5350}
-  .result-badge.tie{background:rgba(96,165,250,0.2);color:#60a5fa}
+  .result-badge.tie {background:rgba(96,165,250,0.2);color:#60a5fa}
 
-  /* ---- SETTINGS TAB ---- */
-  .setting-row{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    padding:10px 0;
-    border-bottom:1px solid rgba(255,255,255,0.05);
-    gap:12px;
-  }
+  /* SETTINGS */
+  .setting-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);gap:12px}
   .setting-title{font-size:13px;font-weight:600}
   .setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
 
-  /* ---- TOAST ---- */
-  #toast{
-    position:fixed;
-    bottom:20px;
-    left:50%;
-    transform:translateX(-50%) translateY(20px);
-    background:var(--bg3);
-    border:1px solid var(--gold-border);
-    color:var(--text);
-    padding:8px 18px;
-    border-radius:999px;
-    font-size:13px;
-    font-weight:600;
-    opacity:0;
-    transition:opacity .25s,transform .25s;
-    z-index:999;
-    pointer-events:none;
-    white-space:nowrap;
-  }
+  /* TOAST */
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg3);border:1px solid var(--gold-border);color:var(--text);padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:999;pointer-events:none;white-space:nowrap}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-  /* ---- MISC ---- */
-  .empty-state{
-    text-align:center;
-    padding:30px 16px;
-    color:var(--muted);
-    font-size:13px;
-  }
+  /* MISC */
+  .empty-state{text-align:center;padding:30px 16px;color:var(--muted);font-size:13px}
   a{color:var(--gold);text-decoration:none}
   a:active{opacity:.75}
   ::-webkit-scrollbar{width:4px;height:4px}
@@ -392,67 +126,52 @@
 <body>
 <div id="app">
 
-  <!-- TOP BAR -->
   <div id="topbar">
-  <span id="conn-dot"></span>
-  <span id="conn-label">Disconnected</span>
-  <div class="spacer"></div>
-  <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
-  <button class="btn btn-ghost" id="btn-login" onclick="doLogin()">Login</button>
-  <button class="btn btn-ghost btn-sm" onclick="Android.dumpCookies(); showToast('Cookie dump — check logs');" title="Dump cookies">🍪</button>
-  <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
-</div>
+    <span id="conn-dot"></span>
+    <span id="conn-label">Disconnected</span>
+    <div class="spacer"></div>
+    <button class="btn btn-gold"  id="btn-startstop" onclick="toggleRunning()">Start</button>
+    <button class="btn btn-ghost" id="btn-login"     onclick="doLogin()">Login</button>
+    <button class="btn btn-ghost btn-sm" onclick="doDumpCookies()" title="Dump cookies">🍪</button>
+    <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
+  </div>
 
-  <!-- STATS ROW -->
   <div id="stats-row">
-    <div class="stat-pill"><span class="stat-pill-label">Rank</span><span class="stat-pill-val" id="stat-rank">—</span></div>
-    <div class="stat-pill"><span class="stat-pill-label">Tier</span><span class="stat-pill-val" id="stat-tier">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Rank</span>  <span class="stat-pill-val" id="stat-rank">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Tier</span>  <span class="stat-pill-val" id="stat-tier">—</span></div>
     <div class="stat-pill"><span class="stat-pill-label">Points</span><span class="stat-pill-val" id="stat-points">—</span></div>
-    <div class="stat-pill"><span class="stat-pill-label">Souls</span><span class="stat-pill-val" id="stat-souls">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Souls</span> <span class="stat-pill-val" id="stat-souls">—</span></div>
     <div class="stat-pill"><span class="stat-pill-label">Tokens</span><span class="stat-pill-val" id="stat-tokens">—</span></div>
   </div>
 
-  <!-- HP SECTION -->
   <div id="hp-section" class="inactive">
     <div class="hp-combatants">
       <div class="hp-fighter">
         <img class="hp-avatar" id="ally-avatar" src="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2236%22 height=%2236%22><rect width=%2236%22 height=%2236%22 fill=%22%232a1f36%22/></svg>'"/>
-        <div>
-          <div class="hp-name" id="ally-name">You</div>
-          <div style="font-size:10px;color:var(--muted)" id="ally-hp-label">—</div>
-        </div>
+        <div><div class="hp-name" id="ally-name">You</div><div style="font-size:10px;color:var(--muted)" id="ally-hp-label">—</div></div>
       </div>
       <div style="font-size:11px;color:var(--muted);flex-shrink:0">VS</div>
       <div class="hp-fighter enemy">
         <img class="hp-avatar" id="enemy-avatar" src="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2236%22 height=%2236%22><rect width=%2236%22 height=%2236%22 fill=%22%232a1f36%22/></svg>'"/>
-        <div style="text-align:right">
-          <div class="hp-name" id="enemy-name">Enemy</div>
-          <div style="font-size:10px;color:var(--muted)" id="enemy-hp-label">—</div>
-        </div>
+        <div style="text-align:right"><div class="hp-name" id="enemy-name">Enemy</div><div style="font-size:10px;color:var(--muted)" id="enemy-hp-label">—</div></div>
       </div>
     </div>
     <div class="hp-dual-bar">
-      <div id="hp-ally-fill" style="width:50%;background:linear-gradient(90deg,#22c55e,#4ade80)"></div>
+      <div id="hp-ally-fill"  style="width:50%;background:linear-gradient(90deg,#22c55e,#4ade80)"></div>
       <div id="hp-enemy-fill" style="width:50%;background:linear-gradient(90deg,#f87171,#ef5350);margin-left:auto"></div>
     </div>
-    <div class="hp-labels">
-      <span id="ally-hp-pct">50%</span>
-      <span id="enemy-hp-pct">50%</span>
-    </div>
+    <div class="hp-labels"><span id="ally-hp-pct">50%</span><span id="enemy-hp-pct">50%</span></div>
   </div>
 
-  <!-- TAB BAR -->
   <div id="tab-bar">
     <button class="tab-btn active" onclick="switchTab('battle')">Battle</button>
-    <button class="tab-btn" onclick="switchTab('strategy')">Strategy</button>
-    <button class="tab-btn" onclick="switchTab('history')">History</button>
-    <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+    <button class="tab-btn"        onclick="switchTab('strategy')">Strategy</button>
+    <button class="tab-btn"        onclick="switchTab('history')">History</button>
+    <button class="tab-btn"        onclick="switchTab('settings')">Settings</button>
   </div>
 
-  <!-- TAB PANELS -->
   <div id="tab-panels">
 
-    <!-- BATTLE TAB -->
     <div class="tab-panel active" id="panel-battle">
       <div id="log-container"><div class="empty-state">No logs yet.</div></div>
       <div style="display:flex;gap:8px;flex-shrink:0;padding-top:4px">
@@ -461,18 +180,13 @@
       </div>
     </div>
 
-    <!-- STRATEGY TAB -->
     <div class="tab-panel" id="panel-strategy">
       <div class="card">
         <div class="toggle-row">
-          <div>
-            <div class="toggle-label">Solo Strategy</div>
-            <div class="toggle-sub">Auto-rotate skills on your turn</div>
-          </div>
+          <div><div class="toggle-label">Solo Strategy</div><div class="toggle-sub">Auto-rotate skills on your turn</div></div>
           <label class="toggle">
             <input type="checkbox" id="strategy-toggle" onchange="onStrategyToggle(this.checked)"/>
-            <span class="toggle-track"></span>
-            <span class="toggle-thumb"></span>
+            <span class="toggle-track"></span><span class="toggle-thumb"></span>
           </label>
         </div>
       </div>
@@ -480,39 +194,30 @@
       <button class="btn btn-ghost" onclick="addStrategyEntry()" style="align-self:flex-start">+ Add Entry</button>
     </div>
 
-    <!-- HISTORY TAB -->
     <div class="tab-panel" id="panel-history">
       <div id="history-list"></div>
       <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="align-self:flex-start;margin-top:4px">Clear History</button>
     </div>
 
-    <!-- SETTINGS TAB -->
     <div class="tab-panel" id="panel-settings">
       <div class="card">
         <div class="setting-row">
-          <div>
-            <div class="setting-title">Poll Interval (ms)</div>
-            <div class="setting-sub">How often to check battle state</div>
-          </div>
+          <div><div class="setting-title">Poll Interval (ms)</div><div class="setting-sub">How often to check battle state</div></div>
           <input type="number" id="poll-interval-input" value="1500" min="500" max="10000"
             style="width:80px" onchange="onPollIntervalChange(this.value)"/>
         </div>
         <div class="setting-row" style="border-bottom:none">
-          <div>
-            <div class="setting-title">Debug Logs</div>
-            <div class="setting-sub">Show verbose output in Battle tab</div>
-          </div>
+          <div><div class="setting-title">Debug Logs</div><div class="setting-sub">Show verbose output in Battle tab</div></div>
           <label class="toggle">
             <input type="checkbox" id="debug-toggle" onchange="onDebugToggleChange(this.checked)"/>
-            <span class="toggle-track"></span>
-            <span class="toggle-thumb"></span>
+            <span class="toggle-track"></span><span class="toggle-thumb"></span>
           </label>
         </div>
       </div>
     </div>
 
-  </div><!-- /tab-panels -->
-</div><!-- /app -->
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -520,35 +225,66 @@
 // =============================================================================
 // STATE
 // =============================================================================
-var _state = null;
-var _activeTab = 'battle';
+var _state         = null;
+var _activeTab     = 'battle';
 var _strategyEntries = [];
 var _strategyDirty = false;
-var _skillList = [];
-var _pollTimer = null;
-var _currentPollInterval = 2500;
-var _isRunning = false;
-var _lastLogHash = '';
-var _lastHistLen = -1;
-var _toastTimer = null;
+var _skillList     = [];
+var _pollTimer     = null;
+var _pollIntervalMs = 2500;
+var _isRunning     = false;
+var _lastLogHash   = '';
+var _lastHistLen   = -1;
+var _toastTimer    = null;
 
-// FIX: Debounce guard — tracks when the user last interacted with settings toggles.
-// applyState() will not reset a toggle for 3 s after the user touched it, preventing
-// the "toggle flips back" bug caused by the async SharedPreferences write racing
-// against the next poll tick.
-var _debugToggleLastChanged = 0;
-var _pollIntervalLastChanged = 0;
-var SETTINGS_DEBOUNCE_MS = 3000;
+// ---------- Debug toggle local tracking ----------
+// We track the debug toggle value LOCALLY after the first load.
+// The remote state (SharedPreferences) is only used to initialise it.
+// After that, user interaction is the sole source of truth — we NEVER
+// let the poll loop overwrite it. This eliminates the toggle-flip race.
+var _debugToggleReady = false; // true after first successful state load
+var _debugToggleValue = false; // our local authoritative value
+
+// ---------- Poll interval debounce ----------
+// Don't update the poll interval input while the user is editing it
+var _pollIntervalTouched = false;
+
+// =============================================================================
+// SETTINGS CHANGE HANDLERS  (user-initiated — mark as authoritative)
+// =============================================================================
+function onDebugToggleChange(checked) {
+  _debugToggleValue = checked;          // update local truth
+  _debugToggleReady = true;             // ensure it's locked in
+  if (window.Android) {
+    try { Android.setConfigBool('debug_logs', checked); } catch(e) {}
+  }
+  showToast(checked ? 'Debug logs ON' : 'Debug logs OFF');
+}
+
+function onPollIntervalChange(val) {
+  _pollIntervalTouched = true;
+  var ms = Math.max(500, Math.min(10000, parseInt(val, 10) || 1500));
+  _pollIntervalMs = ms;
+  if (window.Android) {
+    try { Android.setConfigValue('poll_interval_ms', String(ms)); } catch(e) {}
+  }
+  restartPoll(ms);
+  // Allow remote to update after 5 s in case the user switches tabs and back
+  setTimeout(function() { _pollIntervalTouched = false; }, 5000);
+}
 
 // =============================================================================
 // POLL LOOP
 // =============================================================================
-function startPoll(intervalMs) {
+function restartPoll(ms) {
   if (_pollTimer) clearInterval(_pollTimer);
-  var ms = intervalMs || _currentPollInterval || 2500;
-  _currentPollInterval = ms;
-  _pollTimer = setInterval(tick, ms);
-  tick();
+  _pollIntervalMs = ms || _pollIntervalMs;
+  _pollTimer = setInterval(tick, _pollIntervalMs);
+}
+
+function startPoll() {
+  restartPoll(_pollIntervalMs);
+  tick(); // immediate first tick
 }
 
 function tick() {
@@ -561,31 +297,7 @@ function tick() {
   applyState(s);
 }
 
-// Expose for native to call directly after state-changing operations
-window.__pvpmUiRefresh = tick;
-
-// =============================================================================
-// SETTINGS CHANGE HANDLERS
-// These handlers mark the debounce timestamp BEFORE calling the bridge, so the
-// next tick does not immediately reset the control to the old value.
-// =============================================================================
-function onDebugToggleChange(checked) {
-  _debugToggleLastChanged = Date.now();
-  if (window.Android) {
-    try { Android.setConfigBool('debug_logs', checked); } catch(e) {}
-  }
-  showToast(checked ? 'Debug logs ON' : 'Debug logs OFF');
-}
-
-function onPollIntervalChange(value) {
-  _pollIntervalLastChanged = Date.now();
-  var ms = Math.max(500, Math.min(10000, parseInt(value, 10) || 1500));
-  if (window.Android) {
-    try { Android.setConfigValue('poll_interval_ms', String(ms)); } catch(e) {}
-  }
-  // Restart the poll timer with the new interval
-  startPoll(ms);
-}
+window.__pvpmUiRefresh = tick; // native code calls this after state changes
 
 // =============================================================================
 // STATE → DOM
@@ -594,24 +306,19 @@ function applyState(s) {
   _state = s;
 
   // Connection indicator
-  var dot = document.getElementById('conn-dot');
+  var dot   = document.getElementById('conn-dot');
   var label = document.getElementById('conn-label');
   if (s.connected) { dot.className = 'on'; label.textContent = 'Connected'; }
-  else { dot.className = ''; label.textContent = 'Disconnected'; }
+  else             { dot.className = '';   label.textContent = 'Disconnected'; }
 
-  // Login / Logout button label
+  // Login / Logout button
   document.getElementById('btn-login').textContent = s.connected ? 'Logout' : 'Login';
 
   // Start / Stop button
   var ssBtn = document.getElementById('btn-startstop');
   _isRunning = !!s.running;
-  if (_isRunning) {
-    ssBtn.textContent = 'Stop';
-    ssBtn.className = 'btn btn-danger';
-  } else {
-    ssBtn.textContent = 'Start';
-    ssBtn.className = 'btn btn-gold';
-  }
+  if (_isRunning) { ssBtn.textContent = 'Stop';  ssBtn.className = 'btn btn-danger'; }
+  else            { ssBtn.textContent = 'Start'; ssBtn.className = 'btn btn-gold';   }
 
   // Stats pills
   var st = s.stats || {};
@@ -626,8 +333,8 @@ function applyState(s) {
   var hpSection = document.getElementById('hp-section');
   if (m.active) {
     hpSection.classList.remove('inactive');
-    setText('ally-name',   m.allyName  || 'You');
-    setText('enemy-name',  m.enemyName || 'Enemy');
+    setText('ally-name',  m.allyName  || 'You');
+    setText('enemy-name', m.enemyName || 'Enemy');
     var allyPct  = m.allyHpMax  > 0 ? Math.round(m.allyHp  / m.allyHpMax  * 100) : 0;
     var enemyPct = m.enemyHpMax > 0 ? Math.round(m.enemyHp / m.enemyHpMax * 100) : 0;
     document.getElementById('hp-ally-fill').style.width  = allyPct  + '%';
@@ -642,10 +349,8 @@ function applyState(s) {
     hpSection.classList.add('inactive');
   }
 
-  // Skill list cache
   if (s.skillList && s.skillList.length) _skillList = s.skillList;
 
-  // Per-tab updates
   if (_activeTab === 'battle')   renderLogs(s.logs || '');
   if (_activeTab === 'history')  renderHistory(s.matchHistory || []);
   if (_activeTab === 'strategy' && !_strategyDirty) {
@@ -658,23 +363,26 @@ function applyState(s) {
   }
   if (_activeTab === 'settings') {
     var cfg = s.config || {};
-    var now = Date.now();
 
-    // FIX: Only update debug toggle from remote state if the user has NOT interacted
-    // with it recently. This prevents the "toggle flips back" race condition.
-    if (now - _debugToggleLastChanged > SETTINGS_DEBOUNCE_MS) {
-      document.getElementById('debug-toggle').checked = !!cfg.debugLogs;
+    // DEBUG TOGGLE:
+    // On the very first tick, read the persisted value and lock it in locally.
+    // On every subsequent tick, ONLY apply the remote value if it matches what
+    // we already have locally — i.e. we never let a stale remote value flip the
+    // toggle back after the user has interacted with it.
+    if (!_debugToggleReady) {
+      _debugToggleValue = !!cfg.debugLogs;
+      _debugToggleReady = true;
+      document.getElementById('debug-toggle').checked = _debugToggleValue;
     }
+    // After init, don't touch the checkbox at all — user owns it.
 
-    // FIX: Only update poll interval if the user is not currently editing it AND
-    // the debounce window has passed.
-    var pi = document.getElementById('poll-interval-input');
-    if (document.activeElement !== pi && now - _pollIntervalLastChanged > SETTINGS_DEBOUNCE_MS) {
-      var newInterval = cfg.pollIntervalMs || 1500;
-      pi.value = newInterval;
-      // FIX: Restart the poll loop if the stored interval differs from the running one
-      if (newInterval !== _currentPollInterval) {
-        startPoll(newInterval);
+    // POLL INTERVAL: only update input when user isn't editing it
+    if (!_pollIntervalTouched) {
+      var pi = document.getElementById('poll-interval-input');
+      if (document.activeElement !== pi) {
+        var remoteMs = cfg.pollIntervalMs || 1500;
+        if (pi.value != remoteMs) pi.value = remoteMs;
+        if (remoteMs !== _pollIntervalMs) restartPoll(remoteMs);
       }
     }
   }
@@ -688,10 +396,7 @@ function renderLogs(raw) {
   _lastLogHash = raw;
   var container = document.getElementById('log-container');
   var lines = (raw || '').trim().split('\n').filter(Boolean);
-  if (!lines.length) {
-    container.innerHTML = '<div class="empty-state">No logs yet.</div>';
-    return;
-  }
+  if (!lines.length) { container.innerHTML = '<div class="empty-state">No logs yet.</div>'; return; }
   var html = '';
   var start = Math.max(0, lines.length - 300);
   for (var i = lines.length - 1; i >= start; i--) {
@@ -701,9 +406,9 @@ function renderLogs(raw) {
     var type = parts[1];
     var msg  = parts.slice(2).join('|');
     html += '<div class="log-entry">' +
-      '<span class="log-ts">'                        + esc(tsToHMS(ts)) + '</span>' +
-      '<span class="log-badge ' + esc(type) + '">'  + esc(type)        + '</span>' +
-      '<span class="log-msg">'                       + esc(msg)         + '</span>' +
+      '<span class="log-ts">' + esc(tsToHMS(ts)) + '</span>' +
+      '<span class="log-badge ' + esc(type) + '">' + esc(type) + '</span>' +
+      '<span class="log-msg">' + esc(msg) + '</span>' +
       '</div>';
   }
   container.innerHTML = html || '<div class="empty-state">No logs yet.</div>';
@@ -722,166 +427,62 @@ function onStrategyToggle(val) {
   if (window.Android) Android.setStrategyEnabled(val);
   showToast(val ? 'Strategy ON' : 'Strategy OFF');
 }
-
 function addStrategyEntry() {
-  _strategyEntries.push({
-    skillId: '0',
-    condition: { type: 'always', op: '>=', value: 0 },
-    countTarget: 'forever',
-    recycle: false,
-    forceQuota: false
-  });
-  _strategyDirty = true;
-  renderStrategyEntries();
-  saveStrategy();
+  _strategyEntries.push({ skillId:'0', condition:{type:'always',op:'>=',value:0}, countTarget:'forever', recycle:false, forceQuota:false });
+  _strategyDirty = true; renderStrategyEntries(); saveStrategy();
 }
-
-function removeStrategyEntry(idx) {
-  _strategyEntries.splice(idx, 1);
-  _strategyDirty = true;
-  renderStrategyEntries();
-  saveStrategy();
-}
-
+function removeStrategyEntry(idx) { _strategyEntries.splice(idx,1); _strategyDirty=true; renderStrategyEntries(); saveStrategy(); }
 function moveEntry(idx, dir) {
-  var newIdx = idx + dir;
-  if (newIdx < 0 || newIdx >= _strategyEntries.length) return;
-  var tmp = _strategyEntries[idx];
-  _strategyEntries[idx] = _strategyEntries[newIdx];
-  _strategyEntries[newIdx] = tmp;
-  _strategyDirty = true;
-  renderStrategyEntries();
-  saveStrategy();
+  var ni = idx+dir;
+  if (ni<0||ni>=_strategyEntries.length) return;
+  var t=_strategyEntries[idx]; _strategyEntries[idx]=_strategyEntries[ni]; _strategyEntries[ni]=t;
+  _strategyDirty=true; renderStrategyEntries(); saveStrategy();
 }
-
-function saveStrategy() {
-  if (window.Android) Android.saveStrategy(JSON.stringify(_strategyEntries));
-}
-
+function saveStrategy() { if (window.Android) Android.saveStrategy(JSON.stringify(_strategyEntries)); }
 function onEntryChange(idx, field, value) {
-  var e = _strategyEntries[idx];
-  if (!e) return;
-  if (field === 'skillId')      e.skillId = value;
-  else if (field === 'condType') { e.condition.type = value; }
-  else if (field === 'condOp')   e.condition.op = value;
-  else if (field === 'condVal')  e.condition.value = parseFloat(value) || 0;
-  else if (field === 'countTarget') {
-    if (value === 'forever' || value === 'until_fail') e.countTarget = value;
-    else e.countTarget = parseInt(value, 10) || 1;
-  }
-  else if (field === 'recycle')     e.recycle = value;
-  else if (field === 'forceQuota')  e.forceQuota = value;
-  _strategyDirty = true;
-  renderStrategyEntries();
-  saveStrategy();
+  var e=_strategyEntries[idx]; if(!e) return;
+  if (field==='skillId')    e.skillId=value;
+  else if(field==='condType') e.condition.type=value;
+  else if(field==='condOp')   e.condition.op=value;
+  else if(field==='condVal')  e.condition.value=parseFloat(value)||0;
+  else if(field==='countTarget') { if(value==='forever'||value==='until_fail') e.countTarget=value; else e.countTarget=parseInt(value,10)||1; }
+  else if(field==='recycle')    e.recycle=value;
+  else if(field==='forceQuota') e.forceQuota=value;
+  _strategyDirty=true; renderStrategyEntries(); saveStrategy();
 }
-
 function renderStrategyEntries() {
-  var container = document.getElementById('strategy-entries');
-  if (!_strategyEntries.length) {
-    container.innerHTML = '<div class="empty-state">No strategy entries yet.<br>Add one below.</div>';
-    return;
+  var container=document.getElementById('strategy-entries');
+  if(!_strategyEntries.length){ container.innerHTML='<div class="empty-state">No strategy entries yet.<br>Add one below.</div>'; return; }
+  var COND_TYPES=[['always','Always'],['target_hp_pct','Target HP%'],['self_hp_pct','My HP%'],['tokens','Tokens'],['atk_vs_def','ATK vs DEF'],['def_vs_atk','DEF vs ATK'],['preceding_failed','When all preceding fail']];
+  var OPS=['>=','<=','>','<','=='];
+  var html='';
+  for(var i=0;i<_strategyEntries.length;i++){
+    var e=_strategyEntries[i]; var cond=e.condition||{}; var isNum=(cond.type!=='always'&&cond.type!=='preceding_failed'); var isFix=(typeof e.countTarget==='number');
+    var sOpts='<option value="0"'+(e.skillId==='0'?' selected':'')+'>Slash (Basic)</option>';
+    for(var j=0;j<_skillList.length;j++){var sk=_skillList[j];sOpts+='<option value="'+esc(sk.id)+'"'+(e.skillId===sk.id?' selected':'')+'>'+esc(sk.label)+'</option>';}
+    var cOpts=''; for(var k=0;k<COND_TYPES.length;k++){cOpts+='<option value="'+COND_TYPES[k][0]+'"'+(cond.type===COND_TYPES[k][0]?' selected':'')+'>'+COND_TYPES[k][1]+'</option>';}
+    var oOpts=''; for(var o=0;o<OPS.length;o++){oOpts+='<option value="'+OPS[o]+'"'+(cond.op===OPS[o]?' selected':'')+'>'+OPS[o]+'</option>';}
+    var ctKey=(typeof e.countTarget==='number')?'num':e.countTarget;
+    var ctOpts='<option value="forever"'+(ctKey==='forever'?' selected':'')+'>Forever</option><option value="until_fail"'+(ctKey==='until_fail'?' selected':'')+'>Until fails</option><option value="num"'+(ctKey==='num'?' selected':'')+'>Fixed count</option>';
+    html+='<div class="strategy-entry"><div class="entry-row"><span class="entry-label">#'+(i+1)+'</span><select onchange="onEntryChange('+i+',\'skillId\',this.value)">'+sOpts+'</select></div>';
+    html+='<div class="entry-row"><span class="entry-label">Condition</span><select onchange="onEntryChange('+i+',\'condType\',this.value)">'+cOpts+'</select>';
+    if(isNum){html+='<select onchange="onEntryChange('+i+',\'condOp\',this.value)">'+oOpts+'</select><input type="number" value="'+(cond.value||0)+'" style="width:60px" onchange="onEntryChange('+i+',\'condVal\',this.value)"/>';if(cond.type==='target_hp_pct'||cond.type==='self_hp_pct')html+='<span style="color:var(--muted);font-size:11px">%</span>';}
+    html+='</div><div class="entry-row"><span class="entry-label">Count</span><select onchange="onCountSelectChange('+i+',this.value)">'+ctOpts+'</select>';
+    if(isFix)html+='<input type="number" value="'+e.countTarget+'" min="1" style="width:60px" onchange="onEntryChange('+i+',\'countTarget\',this.value)"/>';
+    html+='</div><div class="entry-row"><label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"'+(e.recycle?' checked':'')+' onchange="onEntryChange('+i+',\'recycle\',this.checked)"/> Recycle</label>';
+    if(isFix)html+='<label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"'+(e.forceQuota?' checked':'')+' onchange="onEntryChange('+i+',\'forceQuota\',this.checked)"/> Force Quota</label>';
+    html+='</div><div class="entry-actions">';
+    if(i>0)html+='<button class="btn btn-ghost btn-sm" onclick="moveEntry('+i+',-1)">↑</button>';
+    if(i<_strategyEntries.length-1)html+='<button class="btn btn-ghost btn-sm" onclick="moveEntry('+i+',1)">↓</button>';
+    html+='<button class="btn btn-danger btn-sm" onclick="removeStrategyEntry('+i+')">× Remove</button></div></div>';
   }
-
-  var COND_TYPES = [
-    ['always',            'Always'],
-    ['target_hp_pct',     'Target HP%'],
-    ['self_hp_pct',       'My HP%'],
-    ['tokens',            'Tokens'],
-    ['atk_vs_def',        'ATK vs DEF'],
-    ['def_vs_atk',        'DEF vs ATK'],
-    ['preceding_failed',  'When all preceding fail']
-  ];
-  var OPS = ['>=', '<=', '>', '<', '=='];
-
-  var html = '';
-  for (var i = 0; i < _strategyEntries.length; i++) {
-    var e    = _strategyEntries[i];
-    var cond = e.condition || {};
-    var isNumeric = (cond.type !== 'always' && cond.type !== 'preceding_failed');
-    var isFixed   = (typeof e.countTarget === 'number');
-
-    var skillOpts = '<option value="0"' + (e.skillId === '0' ? ' selected' : '') + '>Slash (Basic)</option>';
-    for (var j = 0; j < _skillList.length; j++) {
-      var sk = _skillList[j];
-      skillOpts += '<option value="' + esc(sk.id) + '"' + (e.skillId === sk.id ? ' selected' : '') + '>' + esc(sk.label) + '</option>';
-    }
-
-    var condOpts = '';
-    for (var k = 0; k < COND_TYPES.length; k++) {
-      condOpts += '<option value="' + COND_TYPES[k][0] + '"' + (cond.type === COND_TYPES[k][0] ? ' selected' : '') + '>' + COND_TYPES[k][1] + '</option>';
-    }
-
-    var opOpts = '';
-    for (var o = 0; o < OPS.length; o++) {
-      opOpts += '<option value="' + OPS[o] + '"' + (cond.op === OPS[o] ? ' selected' : '') + '>' + OPS[o] + '</option>';
-    }
-
-    var ctKey = (typeof e.countTarget === 'number') ? 'num' : e.countTarget;
-    var ctOpts =
-      '<option value="forever"'    + (ctKey === 'forever'    ? ' selected' : '') + '>Forever</option>' +
-      '<option value="until_fail"' + (ctKey === 'until_fail' ? ' selected' : '') + '>Until fails</option>' +
-      '<option value="num"'        + (ctKey === 'num'        ? ' selected' : '') + '>Fixed count</option>';
-
-    html += '<div class="strategy-entry">';
-
-    html += '<div class="entry-row">' +
-      '<span class="entry-label">#' + (i + 1) + '</span>' +
-      '<select onchange="onEntryChange(' + i + ',\'skillId\',this.value)">' + skillOpts + '</select>' +
-      '</div>';
-
-    html += '<div class="entry-row"><span class="entry-label">Condition</span>' +
-      '<select onchange="onEntryChange(' + i + ',\'condType\',this.value)">' + condOpts + '</select>';
-    if (isNumeric) {
-      html += '<select onchange="onEntryChange(' + i + ',\'condOp\',this.value)">' + opOpts + '</select>';
-      html += '<input type="number" value="' + (cond.value || 0) + '" style="width:60px" onchange="onEntryChange(' + i + ',\'condVal\',this.value)"/>';
-      if (cond.type === 'target_hp_pct' || cond.type === 'self_hp_pct') {
-        html += '<span style="color:var(--muted);font-size:11px">%</span>';
-      }
-    }
-    html += '</div>';
-
-    html += '<div class="entry-row"><span class="entry-label">Count</span>' +
-      '<select onchange="onCountSelectChange(' + i + ',this.value)">' + ctOpts + '</select>';
-    if (isFixed) {
-      html += '<input type="number" value="' + e.countTarget + '" min="1" style="width:60px" onchange="onEntryChange(' + i + ',\'countTarget\',this.value)"/>';
-    }
-    html += '</div>';
-
-    html += '<div class="entry-row">' +
-      '<label style="display:flex;align-items:center;gap:5px;font-size:11px">' +
-        '<input type="checkbox"' + (e.recycle ? ' checked' : '') + ' onchange="onEntryChange(' + i + ',\'recycle\',this.checked)"/> Recycle' +
-      '</label>';
-    if (isFixed) {
-      html += '<label style="display:flex;align-items:center;gap:5px;font-size:11px">' +
-        '<input type="checkbox"' + (e.forceQuota ? ' checked' : '') + ' onchange="onEntryChange(' + i + ',\'forceQuota\',this.checked)"/> Force Quota' +
-        '</label>';
-    }
-    html += '</div>';
-
-    html += '<div class="entry-actions">';
-    if (i > 0)                             html += '<button class="btn btn-ghost btn-sm" onclick="moveEntry(' + i + ',-1)">↑</button>';
-    if (i < _strategyEntries.length - 1)   html += '<button class="btn btn-ghost btn-sm" onclick="moveEntry(' + i + ',1)">↓</button>';
-    html += '<button class="btn btn-danger btn-sm" onclick="removeStrategyEntry(' + i + ')">× Remove</button>';
-    html += '</div>';
-
-    html += '</div>';
-  }
-
-  container.innerHTML = html;
+  container.innerHTML=html;
 }
-
 function onCountSelectChange(idx, value) {
-  var e = _strategyEntries[idx];
-  if (!e) return;
-  if (value === 'forever' || value === 'until_fail') {
-    e.countTarget = value;
-  } else {
-    e.countTarget = (typeof e.countTarget === 'number') ? e.countTarget : 1;
-  }
-  _strategyDirty = true;
-  renderStrategyEntries();
-  saveStrategy();
+  var e=_strategyEntries[idx]; if(!e) return;
+  if(value==='forever'||value==='until_fail') e.countTarget=value;
+  else e.countTarget=(typeof e.countTarget==='number')?e.countTarget:1;
+  _strategyDirty=true; renderStrategyEntries(); saveStrategy();
 }
 
 // =============================================================================
@@ -891,49 +492,28 @@ function renderHistory(history) {
   if (history.length === _lastHistLen) return;
   _lastHistLen = history.length;
   var container = document.getElementById('history-list');
-  if (!history.length) {
-    container.innerHTML = '<div class="empty-state">No matches recorded yet.</div>';
-    return;
+  if (!history.length) { container.innerHTML='<div class="empty-state">No matches recorded yet.</div>'; return; }
+  var html='';
+  for(var i=history.length-1;i>=0;i--){
+    var h=history[i]; var enemy=h.enemy||{}; var d=h.pointsDelta||0;
+    var dClass=d>=0?'pos':'neg'; var dStr=(d>=0?'+':'')+d;
+    var rc=h.result==='win'?'win':h.result==='loss'?'loss':'tie';
+    var rl=h.result==='win'?'W':h.result==='loss'?'L':'T';
+    var ts=h.ts?new Date(h.ts):null;
+    var tsStr=ts?(pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())):'';
+    html+='<div class="match-row">';
+    if(enemy.avatarUrl)html+='<img class="match-avatar" src="'+esc(enemy.avatarUrl)+'" onerror="this.style.display=\'none\'"/>';
+    html+='<div class="match-info"><div class="match-enemy">'+esc(enemy.name||'Unknown')+'</div><div class="match-meta">'+esc(tsStr);
+    if(h.matchId)html+=' · <a href="#" onclick="Android.openMatch(\''+esc(h.matchId)+'\');return false">#'+esc(h.matchId)+'</a>';
+    if(enemy.uid)html+=' · <a href="#" onclick="Android.openProfile(\''+esc(enemy.uid)+'\');return false">Profile</a>';
+    html+='</div></div><div class="match-pts"><div class="pts-delta '+dClass+'">'+esc(dStr)+'</div><div style="font-size:9px;color:var(--muted)">'+(h.pointsBefore||0)+'→'+(h.pointsAfter||0)+'</div></div>';
+    html+='<span class="result-badge '+rc+'">'+rl+'</span></div>';
   }
-  var html = '';
-  for (var i = history.length - 1; i >= 0; i--) {
-    var h      = history[i];
-    var enemy  = h.enemy || {};
-    var d      = h.pointsDelta || 0;
-    var dClass = d >= 0 ? 'pos' : 'neg';
-    var dStr   = (d >= 0 ? '+' : '') + d;
-    var resClass = h.result === 'win' ? 'win' : h.result === 'loss' ? 'loss' : 'tie';
-    var resLabel = h.result === 'win' ? 'W'   : h.result === 'loss' ? 'L'    : 'T';
-    var ts     = h.ts ? new Date(h.ts) : null;
-    var tsStr  = ts ? (pad2(ts.getMonth() + 1) + '/' + pad2(ts.getDate()) + ' ' + pad2(ts.getHours()) + ':' + pad2(ts.getMinutes())) : '';
-
-    html += '<div class="match-row">';
-    if (enemy.avatarUrl) {
-      html += '<img class="match-avatar" src="' + esc(enemy.avatarUrl) + '" onerror="this.style.display=\'none\'"/>';
-    }
-    html += '<div class="match-info">' +
-      '<div class="match-enemy">' + esc(enemy.name || 'Unknown') + '</div>' +
-      '<div class="match-meta">' + esc(tsStr);
-    if (h.matchId)  html += ' · <a href="#" onclick="Android.openMatch(\'' + esc(h.matchId) + '\');return false">#' + esc(h.matchId) + '</a>';
-    if (enemy.uid)  html += ' · <a href="#" onclick="Android.openProfile(\'' + esc(enemy.uid) + '\');return false">Profile</a>';
-    html += '</div></div>';
-    html += '<div class="match-pts">' +
-      '<div class="pts-delta ' + dClass + '">' + esc(dStr) + '</div>' +
-      '<div style="font-size:9px;color:var(--muted)">' + (h.pointsBefore || 0) + '→' + (h.pointsAfter || 0) + '</div>' +
-      '</div>';
-    html += '<span class="result-badge ' + resClass + '">' + resLabel + '</span>';
-    html += '</div>';
-  }
-  container.innerHTML = html;
+  container.innerHTML=html;
 }
-
 function clearHistory() {
-  if (window.Android) {
-    try { Android.setConfigValue('clear_history', '1'); } catch(e) {}
-  }
-  _lastHistLen = 0;
-  document.getElementById('history-list').innerHTML = '<div class="empty-state">History cleared.</div>';
-  showToast('History cleared');
+  if(window.Android){try{Android.setConfigValue('clear_history','1');}catch(e){}}
+  _lastHistLen=0; document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>'; showToast('History cleared');
 }
 
 // =============================================================================
@@ -942,35 +522,28 @@ function clearHistory() {
 function toggleRunning() {
   if (!window.Android) { showToast('Android bridge not ready'); return; }
   var newRunning = !_isRunning;
-  if (newRunning && _state && !_state.connected) {
-    showToast('Not connected — login first');
-    return;
-  }
-  try { Android.setRunning(newRunning); } catch(e) { showToast('Error: ' + e.message); return; }
+  if (newRunning && _state && !_state.connected) { showToast('Not connected — login first'); return; }
+  try { Android.setRunning(newRunning); } catch(e) { showToast('Error: '+e.message); return; }
   showToast(newRunning ? 'Bot started' : 'Bot stopped');
 }
-
 function doLogin() {
   if (!window.Android) { showToast('Android bridge not ready'); return; }
-  if (_state && _state.connected) {
-    try { Android.logout(); } catch(e) {}
-    showToast('Logged out');
-  } else {
-    try { Android.openLogin(); } catch(e) { showToast('Error opening login'); }
-  }
+  if (_state && _state.connected) { try{Android.logout();}catch(e){} showToast('Logged out'); }
+  else { try{Android.openLogin();}catch(e){showToast('Error opening login');} }
 }
-
+function doDumpCookies() {
+  if (!window.Android) return;
+  try { Android.dumpCookies(); showToast('Cookie dump — check logs'); } catch(e) {}
+}
 function doCopyLogs() {
   if (!window.Android) return;
   try { Android.copyLogs(); showToast('Logs copied'); } catch(e) {}
 }
-
 function doClearLogs() {
   if (!window.Android) return;
   try { Android.clearLogs(); } catch(e) {}
-  document.getElementById('log-container').innerHTML = '<div class="empty-state">No logs yet.</div>';
-  _lastLogHash = '';
-  showToast('Logs cleared');
+  document.getElementById('log-container').innerHTML='<div class="empty-state">No logs yet.</div>';
+  _lastLogHash=''; showToast('Logs cleared');
 }
 
 // =============================================================================
@@ -979,67 +552,38 @@ function doClearLogs() {
 function switchTab(name) {
   _activeTab = name;
   _strategyDirty = false;
-
-  var tabs = ['battle', 'strategy', 'history', 'settings'];
-  var tabBtns = document.querySelectorAll('.tab-btn');
-  for (var i = 0; i < tabBtns.length; i++) {
-    tabBtns[i].classList.toggle('active', tabs[i] === name);
-  }
+  var tabs = ['battle','strategy','history','settings'];
+  var btns = document.querySelectorAll('.tab-btn');
+  for(var i=0;i<btns.length;i++) btns[i].classList.toggle('active', tabs[i]===name);
   var panels = document.querySelectorAll('.tab-panel');
-  for (var j = 0; j < panels.length; j++) {
-    panels[j].classList.toggle('active', panels[j].id === 'panel-' + name);
-  }
-
-  if (name === 'strategy' && _state) {
-    var strat = _state.strategy || {};
-    _strategyEntries = JSON.parse(JSON.stringify(strat.entries || []));
-    document.getElementById('strategy-toggle').checked = !!strat.enabled;
-    renderStrategyEntries();
-  }
-  if (name === 'history' && _state) {
-    _lastHistLen = -1;
-    renderHistory(_state.matchHistory || []);
-  }
-  if (name === 'battle' && _state) {
-    _lastLogHash = '';
-    renderLogs(_state.logs || '');
-  }
+  for(var j=0;j<panels.length;j++) panels[j].classList.toggle('active', panels[j].id==='panel-'+name);
+  if(name==='strategy'&&_state){var st=_state.strategy||{};_strategyEntries=JSON.parse(JSON.stringify(st.entries||[]));document.getElementById('strategy-toggle').checked=!!st.enabled;renderStrategyEntries();}
+  if(name==='history'&&_state){_lastHistLen=-1;renderHistory(_state.matchHistory||[]);}
+  if(name==='battle'&&_state){_lastLogHash='';renderLogs(_state.logs||'');}
 }
 
 // =============================================================================
 // TOAST
 // =============================================================================
 function showToast(msg) {
-  var el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  if (_toastTimer) clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(function() { el.classList.remove('show'); }, 2000);
+  var el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  if(_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(function(){el.classList.remove('show');},2000);
 }
 
 // =============================================================================
 // UTILS
 // =============================================================================
-function setText(id, val) {
-  var el = document.getElementById(id);
-  if (el) el.textContent = val;
-}
-
+function setText(id, val) { var el=document.getElementById(id); if(el) el.textContent=val; }
 function esc(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 // =============================================================================
 // INIT
 // =============================================================================
-document.addEventListener('DOMContentLoaded', function() {
-  startPoll(2500);
-});
+document.addEventListener('DOMContentLoaded', function() { startPoll(); });
 </script>
 </body>
 </html>
