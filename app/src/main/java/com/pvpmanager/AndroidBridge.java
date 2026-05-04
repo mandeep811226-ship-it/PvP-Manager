@@ -57,6 +57,31 @@ public class AndroidBridge {
             Intent intent = new Intent(context, LoginActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
+
+            // After LoginActivity finishes, reload main.html so the UI WebView
+            // doesn't get stuck on a blank/error page. We poll until the activity
+            // is gone (max ~5 seconds) then reload.
+            mainHandler.postDelayed(new Runnable() {
+                int attempts = 0;
+                @Override
+                public void run() {
+                    attempts++;
+                    if (uiWebView != null) {
+                        String url = uiWebView.getUrl();
+                        // If the UI WebView is no longer on main.html, restore it
+                        if (url == null || !url.equals("file:///android_asset/main.html")) {
+                            uiWebView.loadUrl("file:///android_asset/main.html");
+                            return;
+                        }
+                    }
+                    // Keep checking for up to 10 attempts (5 seconds)
+                    if (attempts < 10) {
+                        mainHandler.postDelayed(this, 500);
+                    }
+                    // Once stable, refresh UI state to reflect new login status
+                    notifyUiStateChanged();
+                }
+            }, 500);
         });
     }
 
@@ -233,6 +258,18 @@ public class AndroidBridge {
     public void setConfigValue(String key, String value) {
         if ("poll_interval_ms".equals(key)) {
             prefs.edit().putString(KEY_POLL_INTERVAL, value).apply();
+        } else if ("clear_history".equals(key)) {
+            // Clear match history from the cached live state
+            try {
+                String cachedLive = prefs.getString("cached_live_state", null);
+                if (cachedLive != null) {
+                    JSONObject live = new JSONObject(cachedLive);
+                    live.put("matchHistory", new JSONArray());
+                    prefs.edit().putString("cached_live_state", live.toString()).apply();
+                }
+            } catch (JSONException e) {
+                appendLog("system", "clearHistory error: " + e.getMessage());
+            }
         }
     }
 
@@ -321,5 +358,4 @@ public class AndroidBridge {
             }
         });
     }
-                  }
-                 
+}
