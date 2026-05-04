@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0"/>
+<title>PvP Manager</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0612;
+    --bg2:#1a1422;
+    --bg3:#2a1f36;
+    --gold:#f2c072;
+    --gold-dim:rgba(242,192,114,0.15);
+    --gold-border:rgba(242,192,114,0.3);
+    --text:#f5e9d0;
+    --muted:#a39580;
+    --green:#22c55e;
+    --red:#ef4444;
+    --red-dim:rgba(239,68,68,0.15);
+    --blue:#60a5fa;
+    --radius:10px;
+    --font:system-ui,-apple-system,'Segoe UI',sans-serif;
+  }
+  html,body{
+    height:100%;width:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    font-size:14px;
+    overflow:hidden;
+  }
+  #app{
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    max-width:100vw;
+    overflow:hidden;
+  }
+
+  /* ---- TOP BAR ---- */
+  #topbar{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:10px 12px;
+    background:var(--bg2);
+    border-bottom:1px solid var(--gold-border);
+    flex-shrink:0;
+    flex-wrap:wrap;
+  }
+  #conn-dot{
+    width:10px;height:10px;
+    border-radius:50%;
+    background:var(--red);
+    flex-shrink:0;
+  }
+  #conn-dot.on{background:var(--green)}
+  #conn-label{
+    font-size:12px;
+    color:var(--muted);
+    margin-right:4px;
+  }
+  .spacer{flex:1}
+  .btn{
+    border:none;
+    border-radius:999px;
+    padding:7px 14px;
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+    font-family:var(--font);
+    white-space:nowrap;
+    transition:opacity 0.15s;
+  }
+  .btn:active{opacity:0.75}
+  .btn-gold{background:var(--gold);color:#0a0612}
+  .btn-danger{background:var(--red);color:#fff}
+  .btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--gold-border)}
+  .btn-sm{padding:5px 10px;font-size:11px}
+
+  /* ---- STATS ROW ---- */
+  #stats-row{
+    display:flex;
+    gap:6px;
+    padding:8px 12px;
+    background:var(--bg);
+    overflow-x:auto;
+    flex-shrink:0;
+    scrollbar-width:none;
+  }
+  #stats-row::-webkit-scrollbar{display:none}
+  .stat-pill{
+    background:var(--bg2);
+    border:1px solid var(--gold-border);
+    border-radius:999px;
+    padding:4px 10px;
+    font-size:11px;
+    white-space:nowrap;
+    display:flex;
+    align-items:center;
+    gap:5px;
+  }
+  .stat-pill-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+  .stat-pill-val{color:var(--gold);font-weight:700}
+
+  /* ---- HP BAR ---- */
+  #hp-section{
+    padding:10px 12px;
+    background:var(--bg2);
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    flex-shrink:0;
+  }
+  #hp-section.inactive{opacity:0.4;pointer-events:none}
+  .hp-combatants{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:8px;
+    gap:6px;
+  }
+  .hp-fighter{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-width:0;
+  }
+  .hp-fighter.enemy{flex-direction:row-reverse}
+  .hp-avatar{
+    width:36px;height:36px;
+    border-radius:50%;
+    object-fit:cover;
+    border:2px solid var(--gold-border);
+    flex-shrink:0;
+    background:var(--bg3);
+  }
+  .hp-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
+  .hp-bar-wrap{
+    height:14px;
+    background:var(--bg);
+    border-radius:999px;
+    overflow:hidden;
+    position:relative;
+    border:1px solid rgba(255,255,255,0.08);
+  }
+  #hp-ally-fill{
+    height:100%;
+    background:linear-gradient(90deg,#22c55e,#4ade80);
+    border-radius:999px;
+    transition:width 0.4s ease;
+  }
+  #hp-enemy-fill{
+    height:100%;
+    background:linear-gradient(90deg,#ef5350,#f87171);
+    border-radius:999px;
+    transition:width 0.4s ease;
+    margin-left:auto;
+  }
+  .hp-dual-bar{
+    display:flex;
+    height:14px;
+    background:var(--bg);
+    border-radius:999px;
+    overflow:hidden;
+    border:1px solid rgba(255,255,255,0.08);
+  }
+  .hp-labels{
+    display:flex;
+    justify-content:space-between;
+    font-size:10px;
+    color:var(--muted);
+    margin-top:3px;
+  }
+
+  /* ---- TABS ---- */
+  #tab-bar{
+    display:flex;
+    background:var(--bg2);
+    border-bottom:1px solid var(--gold-border);
+    flex-shrink:0;
+  }
+  .tab-btn{
+    flex:1;
+    border:none;
+    background:transparent;
+    color:var(--muted);
+    font-size:12px;
+    font-weight:600;
+    padding:10px 4px;
+    cursor:pointer;
+    font-family:var(--font);
+    border-bottom:2px solid transparent;
+    transition:color 0.15s,border-color 0.15s;
+  }
+  .tab-btn.active{
+    color:var(--gold);
+    border-bottom-color:var(--gold);
+  }
+
+  /* ---- TAB PANELS ---- */
+  #tab-panels{
+    flex:1;
+    overflow:hidden;
+    position:relative;
+  }
+  .tab-panel{
+    position:absolute;
+    inset:0;
+    overflow-y:auto;
+    padding:12px;
+    display:none;
+    flex-direction:column;
+    gap:10px;
+  }
+  .tab-panel.active{display:flex}
+
+  /* ---- BATTLE LOG ---- */
+  #log-container{
+    flex:1;
+    background:var(--bg2);
+    border-radius:var(--radius);
+    overflow-y:auto;
+    padding:8px 10px;
+    min-height:80px;
+    font-size:12px;
+    font-family:'Courier New',monospace;
+    border:1px solid rgba(255,255,255,0.06);
+  }
+  .log-entry{
+    display:flex;
+    gap:8px;
+    padding:2px 0;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+    line-height:1.4;
+  }
+  .log-ts{color:var(--muted);flex-shrink:0;font-size:10px;margin-top:1px}
+  .log-badge{
+    flex-shrink:0;
+    border-radius:4px;
+    padding:1px 5px;
+    font-size:9px;
+    font-weight:700;
+    text-transform:uppercase;
+    align-self:flex-start;
+    margin-top:1px;
+  }
+  .log-badge.info{background:#333;color:#ccc}
+  .log-badge.win{background:rgba(102,187,106,0.2);color:#66bb6a}
+  .log-badge.loss{background:rgba(239,83,80,0.2);color:#ef5350}
+  .log-badge.system{background:var(--gold-dim);color:var(--gold)}
+  .log-msg{color:var(--text);word-break:break-word;flex:1}
+  .log-actions{display:flex;gap:8px;flex-shrink:0}
+
+  /* ---- STRATEGY TAB ---- */
+  .card{
+    background:var(--bg2);
+    border-radius:var(--radius);
+    border:1px solid rgba(255,255,255,0.07);
+    padding:12px;
+  }
+  .card-title{
+    font-size:13px;
+    font-weight:700;
+    color:var(--gold);
+    margin-bottom:8px;
+  }
+  .toggle-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .toggle-label{font-size:13px;font-weight:600}
+  .toggle-sub{font-size:11px;color:var(--muted);margin-top:2px}
+  /* iOS-style toggle */
+  .toggle{
+    position:relative;
+    width:44px;height:24px;
+    flex-shrink:0;
+  }
+  .toggle input{opacity:0;width:0;height:0}
+  .toggle-track{
+    position:absolute;inset:0;
+    background:#444;
+    border-radius:999px;
+    cursor:pointer;
+    transition:background .2s;
+  }
+  .toggle input:checked ~ .toggle-track{background:var(--gold)}
+  .toggle-thumb{
+    position:absolute;
+    top:3px;left:3px;
+    width:18px;height:18px;
+    background:#fff;
+    border-radius:50%;
+    transition:transform .2s;
+    pointer-events:none;
+  }
+  .toggle input:checked ~ .toggle-track ~ .toggle-thumb{transform:translateX(20px)}
+
+  /* strategy entry cards */
+  .strategy-entry{
+    background:var(--bg3);
+    border-radius:var(--radius);
+    border:1px solid var(--gold-border);
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .entry-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    flex-wrap:wrap;
+  }
+  .entry-label{font-size:11px;color:var(--muted);white-space:nowrap}
+  select,input[type=number],input[type=text]{
+    background:var(--bg);
+    border:1px solid var(--gold-border);
+    border-radius:6px;
+    color:var(--text);
+    padding:5px 8px;
+    font-size:12px;
+    font-family:var(--font);
+    outline:none;
+  }
+  select:focus,input:focus{border-color:var(--gold)}
+  .entry-skill-wrap{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    flex:1;
+  }
+  .skill-thumb{
+    width:24px;height:24px;
+    border-radius:4px;
+    object-fit:cover;
+    background:var(--bg3);
+  }
+  .entry-actions{
+    display:flex;
+    gap:6px;
+    justify-content:flex-end;
+  }
+  .entry-actions .btn{padding:4px 8px;font-size:11px}
+
+  /* ---- HISTORY TAB ---- */
+  .match-row{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    padding:8px 0;
+    border-bottom:1px solid rgba(255,255,255,0.05);
+  }
+  .match-avatar{
+    width:30px;height:30px;
+    border-radius:50%;
+    object-fit:cover;
+    flex-shrink:0;
+    background:var(--bg3);
+  }
+  .match-info{flex:1;min-width:0}
+  .match-enemy{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .match-meta{font-size:10px;color:var(--muted)}
+  .match-pts{
+    text-align:right;
+    flex-shrink:0;
+    font-size:11px;
+  }
+  .pts-delta{font-weight:700}
+  .pts-delta.pos{color:#66bb6a}
+  .pts-delta.neg{color:#ef5350}
+  .result-badge{
+    border-radius:4px;
+    padding:2px 7px;
+    font-size:10px;
+    font-weight:700;
+    flex-shrink:0;
+    align-self:center;
+  }
+  .result-badge.win{background:rgba(102,187,106,0.2);color:#66bb6a}
+  .result-badge.loss{background:rgba(239,83,80,0.2);color:#ef5350}
+  .result-badge.tie{background:rgba(96,165,250,0.2);color:#60a5fa}
+
+  /* ---- SETTINGS TAB ---- */
+  .setting-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:10px 0;
+    border-bottom:1px solid rgba(255,255,255,0.05);
+    gap:12px;
+  }
+  .setting-info{}
+  .setting-title{font-size:13px;font-weight:600}
+  .setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
+
+  /* ---- TOAST ---- */
+  #toast{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:var(--bg3);
+    border:1px solid var(--gold-border);
+    color:var(--text);
+    padding:8px 18px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:600;
+    opacity:0;
+    transition:opacity .25s,transform .25s;
+    z-index:999;
+    pointer-events:none;
+    white-space:nowrap;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* ---- MISC ---- */
+  .section-header{
+    font-size:11px;
+    font-weight:700;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.6px;
+    margin-bottom:4px;
+  }
+  .empty-state{
+    text-align:center;
+    padding:30px 16px;
+    color:var(--muted);
+    font-size:13px;
+  }
+  a{color:var(--gold);text-decoration:none}
+  a:active{opacity:.75}
+
+  /* scrollbar */
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <span id="conn-dot"></span>
+    <span id="conn-label">Disconnected</span>
+    <div class="spacer"></div>
+    <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
+    <button class="btn btn-ghost" id="btn-login" onclick="doLogin()">Login</button>
+    <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
+  </div>
+
+  <!-- STATS ROW -->
+  <div id="stats-row">
+    <div class="stat-pill"><span class="stat-pill-label">Rank</span><span class="stat-pill-val" id="stat-rank">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Tier</span><span class="stat-pill-val" id="stat-tier">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Points</span><span class="stat-pill-val" id="stat-points">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Souls</span><span class="stat-pill-val" id="stat-souls">—</span></div>
+    <div class="stat-pill"><span class="stat-pill-label">Tokens</span><span class="stat-pill-val" id="stat-tokens">—</span></div>
+  </div>
+
+  <!-- HP SECTION -->
+  <div id="hp-section" class="inactive">
+    <div class="hp-combatants">
+      <div class="hp-fighter">
+        <img class="hp-avatar" id="ally-avatar" src="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2236%22 height=%2236%22><rect width=%2236%22 height=%2236%22 fill=%22%232a1f36%22/></svg>'"/>
+        <div>
+          <div class="hp-name" id="ally-name">You</div>
+          <div style="font-size:10px;color:var(--muted)" id="ally-hp-label">—</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);flex-shrink:0">VS</div>
+      <div class="hp-fighter enemy">
+        <img class="hp-avatar" id="enemy-avatar" src="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2236%22 height=%2236%22><rect width=%2236%22 height=%2236%22 fill=%22%232a1f36%22/></svg>'"/>
+        <div style="text-align:right">
+          <div class="hp-name" id="enemy-name">Enemy</div>
+          <div style="font-size:10px;color:var(--muted)" id="enemy-hp-label">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="hp-dual-bar">
+      <div id="hp-ally-fill" style="width:50%;background:linear-gradient(90deg,#22c55e,#4ade80)"></div>
+      <div id="hp-enemy-fill" style="width:50%;background:linear-gradient(90deg,#f87171,#ef5350);margin-left:auto"></div>
+    </div>
+    <div class="hp-labels">
+      <span id="ally-hp-pct">50%</span>
+      <span id="enemy-hp-pct">50%</span>
+    </div>
+  </div>
+
+  <!-- TAB BAR -->
+  <div id="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('battle')">Battle</button>
+    <button class="tab-btn" onclick="switchTab('strategy')">Strategy</button>
+    <button class="tab-btn" onclick="switchTab('history')">History</button>
+    <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <!-- TAB PANELS -->
+  <div id="tab-panels">
+
+    <!-- BATTLE TAB -->
+    <div class="tab-panel active" id="panel-battle">
+      <div id="log-container"></div>
+      <div class="log-actions" style="display:flex;gap:8px;flex-shrink:0;padding-top:4px">
+        <button class="btn btn-ghost btn-sm" onclick="doCopyLogs()">Copy Logs</button>
+        <button class="btn btn-ghost btn-sm" onclick="doClearLogs()">Clear Logs</button>
+      </div>
+    </div>
+
+    <!-- STRATEGY TAB -->
+    <div class="tab-panel" id="panel-strategy">
+      <div class="card">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Solo Strategy</div>
+            <div class="toggle-sub">Auto-rotate skills on your turn</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="strategy-toggle" onchange="onStrategyToggle(this.checked)"/>
+            <span class="toggle-track"></span>
+            <span class="toggle-thumb"></span>
+          </label>
+        </div>
+      </div>
+
+      <div id="strategy-entries"></div>
+
+      <button class="btn btn-ghost" onclick="addStrategyEntry()" style="align-self:flex-start">+ Add Entry</button>
+    </div>
+
+    <!-- HISTORY TAB -->
+    <div class="tab-panel" id="panel-history">
+      <div id="history-list"></div>
+      <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="align-self:flex-start;margin-top:4px">Clear History</button>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div class="tab-panel" id="panel-settings">
+      <div class="card">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Poll Interval (ms)</div>
+            <div class="setting-sub">How often to check battle state</div>
+          </div>
+          <input type="number" id="poll-interval-input" value="1500" min="500" max="10000"
+            style="width:80px" onchange="Android.setConfigValue('poll_interval_ms', this.value)"/>
+        </div>
+        <div class="setting-row" style="border-bottom:none">
+          <div class="setting-info">
+            <div class="setting-title">Debug Logs</div>
+            <div class="setting-sub">Show verbose output in Battle tab</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="debug-toggle" onchange="Android.setConfigBool('debug_logs', this.checked)"/>
+            <span class="toggle-track"></span>
+            <span class="toggle-thumb"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-panels -->
+</div><!-- /app -->
+
+<div id="toast"></div>
+
+<script>
+// =============================================================================
+// STATE
+// =============================================================================
+var _state = null;
+var _activeTab = 'battle';
+var _strategyEntries = [];   // local editable copy
+var _skillList = [];
+var _pollTimer = null;
+var _isRunning = false;
+
+// =============================================================================
+// POLL LOOP
+// =============================================================================
+function startPoll() {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(tick, 2500);
+  tick();
+}
+
+function tick() {
+  if (window.Android) {
+    try { Android.refreshLiveState(); } catch(e){}
+    var raw = Android.getState();
+    var s;
+    try { s = JSON.parse(raw); } catch(e) { return; }
+    applyState(s);
+  }
+}
+
+// expose for native to call
+window.__pvpmUiRefresh = tick;
+
+// =============================================================================
+// STATE → DOM
+// =============================================================================
+function applyState(s) {
+  _state = s;
+
+  // connection indicator
+  var dot = document.getElementById('conn-dot');
+  var label = document.getElementById('conn-label');
+  if (s.connected) { dot.className='on'; label.textContent='Connected'; }
+  else { dot.className=''; label.textContent='Disconnected'; }
+
+  // login/logout button
+  var loginBtn = document.getElementById('btn-login');
+  loginBtn.textContent = s.connected ? 'Logout' : 'Login';
+
+  // start/stop button
+  var ssBtn = document.getElementById('btn-startstop');
+  _isRunning = s.running;
+  if (s.running) {
+    ssBtn.textContent = 'Stop';
+    ssBtn.className = 'btn btn-danger';
+  } else {
+    ssBtn.textContent = 'Start';
+    ssBtn.className = 'btn btn-gold';
+  }
+
+  // stats
+  var st = s.stats || {};
+  setText('stat-rank', st.rank || '—');
+  setText('stat-tier', st.tier || '—');
+  setText('stat-points', st.points || '—');
+  setText('stat-souls', st.souls || '—');
+  setText('stat-tokens', st.tokens || '—');
+
+  // HP section
+  var m = s.match || {};
+  var hpSection = document.getElementById('hp-section');
+  if (m.active) {
+    hpSection.classList.remove('inactive');
+    setText('ally-name', m.allyName || 'You');
+    setText('enemy-name', m.enemyName || 'Enemy');
+    var allyPct = m.allyHpMax > 0 ? Math.round(m.allyHp / m.allyHpMax * 100) : 0;
+    var enemyPct = m.enemyHpMax > 0 ? Math.round(m.enemyHp / m.enemyHpMax * 100) : 0;
+    document.getElementById('hp-ally-fill').style.width = allyPct + '%';
+    document.getElementById('hp-enemy-fill').style.width = enemyPct + '%';
+    setText('ally-hp-pct', allyPct + '%');
+    setText('enemy-hp-pct', enemyPct + '%');
+    setText('ally-hp-label', (m.allyHp || 0) + ' / ' + (m.allyHpMax || 0));
+    setText('enemy-hp-label', (m.enemyHp || 0) + ' / ' + (m.enemyHpMax || 0));
+    if (m.allyAvatarUrl) document.getElementById('ally-avatar').src = m.allyAvatarUrl;
+    if (m.enemyAvatarUrl) document.getElementById('enemy-avatar').src = m.enemyAvatarUrl;
+  } else {
+    hpSection.classList.add('inactive');
+  }
+
+  // skill list cache
+  if (s.skillList && s.skillList.length) _skillList = s.skillList;
+
+  // logs (battle tab)
+  if (_activeTab === 'battle') renderLogs(s.logs || '');
+
+  // strategy
+  if (_activeTab === 'strategy') {
+    var strat = s.strategy || {};
+    document.getElementById('strategy-toggle').checked = !!strat.enabled;
+    if (strat.entries && !_strategyDirty) {
+      _strategyEntries = JSON.parse(JSON.stringify(strat.entries));
+      renderStrategyEntries();
+    }
+  }
+
+  // history
+  if (_activeTab === 'history') renderHistory(s.matchHistory || []);
+
+  // settings
+  if (_activeTab === 'settings
