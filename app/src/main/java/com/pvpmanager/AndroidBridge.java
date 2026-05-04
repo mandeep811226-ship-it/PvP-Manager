@@ -1,6 +1,5 @@
 package com.pvpmanager;
 
-import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -21,32 +20,63 @@ import org.json.JSONObject;
 
 public class AndroidBridge {
 
-    private static final String PREFS_NAME = "pvp_manager_prefs";
-    private static final String KEY_RUNNING = "running";
-    private static final String KEY_DEBUG_LOGS = "debug_logs";
-    private static final String KEY_POLL_INTERVAL = "poll_interval_ms";
-    private static final String KEY_STRATEGY = "strategy_json";
+    private static final String PREFS_NAME          = "pvp_manager_prefs";
+    private static final String KEY_RUNNING          = "running";
+    private static final String KEY_DEBUG_LOGS       = "debug_logs";
+    private static final String KEY_POLL_INTERVAL    = "poll_interval_ms";
+    private static final String KEY_STRATEGY         = "strategy_json";
     private static final String KEY_SESSION_VERIFIED = "session_verified";
-    private static final String KEY_SESSION_TIMESTAMP = "session_timestamp";
+    private static final String KEY_SESSION_TS       = "session_timestamp";
 
-    // Session is considered fresh for 24 hours; the gameWebView re-verifies on
-    // every page load anyway, so this is just a guard against cleared preferences.
-    private static final long SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000L;
+    // 24-hour session window. gameWebView re-verifies on every page load anyway.
+    private static final long SESSION_MAX_AGE_MS = 24L * 60 * 60 * 1000;
 
-    private final Context context;
-    private final WebView gameWebView;
-    private final WebView uiWebView;
+    private final Context          context;
+    private final WebView          gameWebView;
+    private final WebView          uiWebView;
     private final SharedPreferences prefs;
-    private final Handler mainHandler;
-    private final StringBuilder logBuffer = new StringBuilder();
+    private final Handler          mainHandler;
+    private final StringBuilder    logBuffer = new StringBuilder();
 
     public AndroidBridge(Context context, WebView gameWebView, WebView uiWebView) {
-        this.context = context;
+        this.context     = context;
         this.gameWebView = gameWebView;
-        this.uiWebView = uiWebView;
-        this.prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        this.uiWebView   = uiWebView;
+        this.prefs       = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
+
+    // -------------------------------------------------------------------------
+    // SESSION
+    // -------------------------------------------------------------------------
+
+    /**
+     * Marks the session as active or cleared.
+     * Called from trusted Java code only — NOT exposed as @JavascriptInterface
+     * to prevent any webpage from faking a connected state.
+     */
+    public void setConnected(boolean connected) {
+        SharedPreferences.Editor ed = prefs.edit();
+        if (connected) {
+            ed.putBoolean(KEY_SESSION_VERIFIED, true)
+              .putLong(KEY_SESSION_TS, System.currentTimeMillis());
+        } else {
+            ed.remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TS);
+        }
+        ed.commit(); // synchronous so the next getState() sees it immediately
+        appendLog("system", connected ? "✅ Connected" : "❌ Disconnected");
+        notifyUiStateChanged();
+    }
+
+    public boolean isSessionVerified() {
+        if (!prefs.getBoolean(KEY_SESSION_VERIFIED, false)) return false;
+        long ts = prefs.getLong(KEY_SESSION_TS, 0);
+        return (System.currentTimeMillis() - ts) < SESSION_MAX_AGE_MS;
+    }
+
+    // -------------------------------------------------------------------------
+    // JS INTERFACE — called from uiWebView (main.html)
+    // -------------------------------------------------------------------------
 
     @JavascriptInterface
     public void openLogin() {
@@ -59,58 +89,28 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void logout() {
-        // Use commit() so changes are visible immediately to the next getState() call
         prefs.edit()
-                .putBoolean(KEY_RUNNING, false)
-                .remove(KEY_SESSION_VERIFIED)
-                .remove(KEY_SESSION_TIMESTAMP)
-                .commit();
+             .putBoolean(KEY_RUNNING, false)
+             .remove(KEY_SESSION_VERIFIED)
+             .remove(KEY_SESSION_TS)
+             .commit();
         CookieHelper.clearAll();
         appendLog("system", "Logged out — cookies cleared");
         notifyUiStateChanged();
-    }
-
-    /**
-     * Marks the session as connected or disconnected.
-     * NOT exposed as @JavascriptInterface — called only from trusted Java code
-     * (MainActivity.verifyGameWebViewSession / MainActivity.doConnect).
-     */
-    public void setConnected(boolean connected) {
-        if (connected) {
-            prefs.edit()
-                    .putBoolean(KEY_SESSION_VERIFIED, true)
-                    .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
-                    .commit();
-            appendLog("system", "✅ Connected — session active");
-        } else {
-            prefs.edit()
-                    .remove(KEY_SESSION_VERIFIED)
-                    .remove(KEY_SESSION_TIMESTAMP)
-                    .commit();
-            appendLog("system", "❌ Disconnected — session cleared");
-        }
-        notifyUiStateChanged();
-    }
-
-    public boolean isSessionVerified() {
-        boolean verified = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
-        if (!verified) return false;
-        long ts = prefs.getLong(KEY_SESSION_TIMESTAMP, 0);
-        return (System.currentTimeMillis() - ts) < SESSION_MAX_AGE_MS;
     }
 
     @JavascriptInterface
     public void dumpCookies() {
         appendLog("system", "=== COOKIE DUMP ===");
         CookieManager.getInstance().flush();
-        String cmCookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-        int len = cmCookies == null ? 0 : cmCookies.length();
-        appendLog("debug", "CookieManager length=" + len + ": " +
-                (cmCookies != null ? (len > 200 ? cmCookies.substring(0, 200) + "..." : cmCookies) : "null"));
+        String c = CookieManager.getInstance().getCookie("https://demonicscans.org");
+        int len = c == null ? 0 : c.length();
+        appendLog("debug", "CookieManager len=" + len + ": " +
+                (c != null ? (len > 200 ? c.substring(0, 200) + "…" : c) : "null"));
         if (gameWebView != null) {
             mainHandler.post(() ->
-                gameWebView.evaluateJavascript("document.cookie", value ->
-                    appendLog("debug", "gameWebView document.cookie: " + value)));
+                gameWebView.evaluateJavascript("document.cookie", val ->
+                    appendLog("debug", "gameWebView doc.cookie: " + val)));
         }
         appendLog("system", "=== END COOKIE DUMP ===");
         notifyUiStateChanged();
@@ -120,6 +120,7 @@ public class AndroidBridge {
     public String getState() {
         try {
             JSONObject state = new JSONObject();
+
             boolean connected = isSessionVerified();
             state.put("connected", connected);
 
@@ -134,11 +135,12 @@ public class AndroidBridge {
 
             JSONObject config = new JSONObject();
             config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
-            config.put("pollIntervalMs", Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")));
+            config.put("pollIntervalMs",
+                       Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")));
             state.put("config", config);
 
-            String strategyJson = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
-            state.put("strategy", new JSONObject(strategyJson));
+            String stratJson = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
+            state.put("strategy", new JSONObject(stratJson));
 
             synchronized (logBuffer) {
                 state.put("logs", logBuffer.toString());
@@ -157,9 +159,11 @@ public class AndroidBridge {
                 state.put("skillList",    new JSONArray());
                 state.put("matchHistory", new JSONArray());
             }
+
             return state.toString();
+
         } catch (JSONException e) {
-            Log.e("PvPManager", "getState JSON error: " + e.getMessage());
+            Log.e("PvPManager", "getState error: " + e.getMessage());
             return "{\"error\":\"" + e.getMessage() + "\"}";
         }
     }
@@ -167,39 +171,36 @@ public class AndroidBridge {
     @JavascriptInterface
     public void refreshLiveState() {
         mainHandler.post(() -> {
-            if (gameWebView != null) {
-                gameWebView.evaluateJavascript(
-                    "(function(){ return JSON.stringify(window.__pvpmState || null); })()",
-                    value -> {
-                        if (value != null && !value.equals("null")) {
-                            try {
-                                String unquoted = value;
-                                if (unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
-                                    unquoted = unquoted.substring(1, unquoted.length() - 1)
-                                            .replace("\\\"", "\"")
-                                            .replace("\\\\", "\\")
-                                            .replace("\\n", "\n");
-                                }
-                                prefs.edit().putString("cached_live_state", unquoted).apply();
-                            } catch (Exception e) {
-                                Log.e("PvPManager", "refreshLiveState parse error: " + e.getMessage());
-                            }
+            if (gameWebView == null) return;
+            gameWebView.evaluateJavascript(
+                "(function(){ return JSON.stringify(window.__pvpmState || null); })()",
+                value -> {
+                    if (value == null || value.equals("null")) return;
+                    try {
+                        String raw = value;
+                        if (raw.startsWith("\"") && raw.endsWith("\"")) {
+                            raw = raw.substring(1, raw.length() - 1)
+                                     .replace("\\\"", "\"")
+                                     .replace("\\\\", "\\")
+                                     .replace("\\n", "\n");
                         }
-                    });
-            }
+                        prefs.edit().putString("cached_live_state", raw).apply();
+                    } catch (Exception e) {
+                        Log.e("PvPManager", "refreshLiveState parse: " + e.getMessage());
+                    }
+                });
         });
     }
 
     @JavascriptInterface
     public void setRunning(boolean running) {
         if (running && !isSessionVerified()) {
-            appendLog("system", "Cannot start bot — not connected");
+            appendLog("system", "Cannot start — not connected");
             notifyUiStateChanged();
             return;
         }
         prefs.edit().putBoolean(KEY_RUNNING, running).commit();
-        String js = "if(window.__pvpmSetRunning) window.__pvpmSetRunning(" + running + ");";
-        evaluateInGameWebView(js);
+        evaluateInGameWebView("if(window.__pvpmSetRunning) window.__pvpmSetRunning(" + running + ");");
         appendLog("system", running ? "Bot started" : "Bot stopped");
         notifyUiStateChanged();
     }
@@ -211,10 +212,10 @@ public class AndroidBridge {
             JSONObject obj = new JSONObject(raw);
             obj.put("enabled", enabled);
             prefs.edit().putString(KEY_STRATEGY, obj.toString()).commit();
-            String escaped = obj.toString().replace("'", "\\'");
-            evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');");
+            String esc = obj.toString().replace("'", "\\'");
+            evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy','" + esc + "');");
         } catch (JSONException e) {
-            appendLog("system", "Strategy error: " + e.getMessage());
+            appendLog("error", "Strategy error: " + e.getMessage());
         }
     }
 
@@ -226,26 +227,27 @@ public class AndroidBridge {
             JSONObject obj = new JSONObject(raw);
             obj.put("entries", entries);
             prefs.edit().putString(KEY_STRATEGY, obj.toString()).commit();
-            String escaped = obj.toString().replace("'", "\\'");
-            evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');");
+            String esc = obj.toString().replace("'", "\\'");
+            evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy','" + esc + "');");
         } catch (JSONException e) {
-            appendLog("system", "saveStrategy error: " + e.getMessage());
+            appendLog("error", "saveStrategy error: " + e.getMessage());
         }
     }
 
     /**
-     * BUG FIX: Changed .apply() → .commit() so the preference write is synchronous.
-     * With .apply() the next getState() poll (2.5 s later) could read the old value
-     * and reset the toggle in the UI before the async write finished.
-     * Also calls notifyUiStateChanged() so the UI reflects the new value immediately.
+     * Saves a boolean config value.
+     * Uses commit() (synchronous) so getState() called on the very next tick
+     * sees the updated value — this eliminates the toggle-flip-back race.
      */
     @JavascriptInterface
     public void setConfigBool(String key, boolean value) {
         if ("debug_logs".equals(key)) {
-            prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).commit();
-            evaluateInGameWebView("localStorage.setItem('et_pvp_debug_logs', '" + value + "');");
-            appendLog("debug", "Debug logs " + (value ? "enabled" : "disabled"));
-            notifyUiStateChanged();
+            boolean saved = prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).commit();
+            Log.d("PvPManager", "setConfigBool debug_logs=" + value + " saved=" + saved);
+            evaluateInGameWebView(
+                "localStorage.setItem('et_pvp_debug_logs','" + value + "');");
+            // Do NOT call notifyUiStateChanged here — the JS side already has the
+            // correct toggle state; pushing a refresh would race against it.
         }
     }
 
@@ -253,40 +255,34 @@ public class AndroidBridge {
     public void setConfigValue(String key, String value) {
         if ("poll_interval_ms".equals(key)) {
             prefs.edit().putString(KEY_POLL_INTERVAL, value).commit();
-            notifyUiStateChanged();
         } else if ("clear_history".equals(key)) {
             try {
-                String cachedLive = prefs.getString("cached_live_state", null);
-                if (cachedLive != null) {
-                    JSONObject live = new JSONObject(cachedLive);
+                String cached = prefs.getString("cached_live_state", null);
+                if (cached != null) {
+                    JSONObject live = new JSONObject(cached);
                     live.put("matchHistory", new JSONArray());
                     prefs.edit().putString("cached_live_state", live.toString()).commit();
                 }
             } catch (JSONException e) {
-                appendLog("system", "clearHistory error: " + e.getMessage());
+                appendLog("error", "clearHistory error: " + e.getMessage());
             }
         }
     }
 
     @JavascriptInterface
     public void clearLogs() {
-        synchronized (logBuffer) {
-            logBuffer.setLength(0);
-        }
+        synchronized (logBuffer) { logBuffer.setLength(0); }
         appendLog("system", "Logs cleared");
         notifyUiStateChanged();
     }
 
     @JavascriptInterface
     public void copyLogs() {
-        ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
-        if (clipboard != null) {
+        ClipboardManager cb = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cb != null) {
             String logs;
-            synchronized (logBuffer) {
-                logs = logBuffer.toString();
-            }
-            ClipData clip = ClipData.newPlainText("PvP Manager Logs", logs);
-            clipboard.setPrimaryClip(clip);
+            synchronized (logBuffer) { logs = logBuffer.toString(); }
+            cb.setPrimaryClip(ClipData.newPlainText("PvP Manager Logs", logs));
             appendLog("system", "Logs copied to clipboard");
         }
     }
@@ -294,9 +290,9 @@ public class AndroidBridge {
     @JavascriptInterface
     public void openSettings() {
         mainHandler.post(() -> {
-            Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
+            Intent i = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(i);
         });
     }
 
@@ -310,29 +306,31 @@ public class AndroidBridge {
         openUrl("https://demonicscans.org/pvp_battle.php?match_id=" + matchId);
     }
 
+    // -------------------------------------------------------------------------
+    // INTERNAL HELPERS
+    // -------------------------------------------------------------------------
+
     private void openUrl(String url) {
         mainHandler.post(() -> {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(i);
         });
     }
 
     private void evaluateInGameWebView(String js) {
         mainHandler.post(() -> {
-            if (gameWebView != null) {
-                gameWebView.evaluateJavascript(js, null);
-            }
+            if (gameWebView != null) gameWebView.evaluateJavascript(js, null);
         });
     }
 
     public void appendLog(String type, String message) {
-        long ts = System.currentTimeMillis();
-        String logLine = ts + "|" + type + "|" + message;
+        String line = System.currentTimeMillis() + "|" + type + "|" + message + "\n";
         synchronized (logBuffer) {
-            logBuffer.append(logLine).append("\n");
-            // Trim to the last 400 lines when we exceed 500
-            String[] lines = logBuffer.toString().split("\n");
+            logBuffer.append(line);
+            // Keep at most 400 of the most recent lines
+            String full = logBuffer.toString();
+            String[] lines = full.split("\n");
             if (lines.length > 500) {
                 StringBuilder trimmed = new StringBuilder();
                 for (int i = lines.length - 400; i < lines.length; i++) {
@@ -343,13 +341,13 @@ public class AndroidBridge {
             }
         }
         Log.d("PvPManager", type + ": " + message);
-        // Logs are picked up on the next poll tick; no need to push immediately
     }
 
     public void notifyUiStateChanged() {
         mainHandler.post(() -> {
             if (uiWebView != null) {
-                uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                uiWebView.evaluateJavascript(
+                    "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
         });
     }
