@@ -43,7 +43,7 @@ jobs:
         run: |
           sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-      # 5. Download gradle-wrapper.jar (binary, cannot be committed as text)
+      # 5. Download gradle-wrapper.jar (binary - must be fetched, not uploaded via browser)
       - name: Download gradle-wrapper.jar
         run: |
           curl -L -o gradle/wrapper/gradle-wrapper.jar \
@@ -53,11 +53,11 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # 6. Build debug APK
+      # 7. Build debug APK
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      # 7. Upload APK artifact
+      # 8. Upload APK artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
