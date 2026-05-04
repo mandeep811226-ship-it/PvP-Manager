@@ -53,9 +53,6 @@ public class AndroidBridge {
     @JavascriptInterface
     public void openLogin() {
         mainHandler.post(() -> {
-            // Opens signin.php inside the login WebView overlay in MainActivity.
-            // Using an overlay avoids launching a separate Activity (which caused
-            // the "File not found" error on the uiWebView).
             if (context instanceof MainActivity) {
                 ((MainActivity) context).showLogin();
             }
@@ -64,8 +61,9 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void logout() {
-        CookieHelper.clearAll();
+        // Stop the bot before clearing the session.
         prefs.edit().putBoolean(KEY_RUNNING, false).apply();
+        CookieHelper.clearAll();
         appendLog("system", "Logged out — cookies cleared.");
         notifyUiStateChanged();
     }
@@ -74,14 +72,32 @@ public class AndroidBridge {
     // STATE
     // -------------------------------------------------------------------------
 
+    /**
+     * Called by the JS poll loop. Returns a JSON snapshot of the full app state.
+     *
+     * FIX: The "connected" field is derived from CookieHelper.isConnected(), which
+     * previously used a narrow hardcoded cookie-name allowlist that could miss the
+     * actual session cookie. CookieHelper has been updated to use a layered
+     * detection strategy that falls back to checking for any non-trivial cookie
+     * value — see CookieHelper.java for details.
+     */
     @JavascriptInterface
     public String getState() {
         try {
             JSONObject state = new JSONObject();
 
             // Connected / running
-            state.put("connected", CookieHelper.isConnected());
-            state.put("running", prefs.getBoolean(KEY_RUNNING, false));
+            boolean connected = CookieHelper.isConnected();
+            state.put("connected", connected);
+
+            // If session expired (e.g. server cleared it), stop the bot automatically.
+            boolean running = prefs.getBoolean(KEY_RUNNING, false);
+            if (running && !connected) {
+                prefs.edit().putBoolean(KEY_RUNNING, false).apply();
+                running = false;
+                appendLog("system", "Session expired — bot stopped automatically.");
+            }
+            state.put("running", running);
 
             // Tab
             state.put("tab", prefs.getString("active_tab", "battle"));
@@ -161,6 +177,12 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setRunning(boolean running) {
+        // Guard: do not allow starting the bot without an active session.
+        if (running && !CookieHelper.isConnected()) {
+            appendLog("system", "Cannot start bot — not connected.");
+            notifyUiStateChanged();
+            return;
+        }
         prefs.edit().putBoolean(KEY_RUNNING, running).apply();
         String js = "if(window.__pvpmSetRunning) window.__pvpmSetRunning(" + running + ");";
         evaluateInGameWebView(js);
