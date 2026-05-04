@@ -33,7 +33,6 @@ public class MainActivity extends AppCompatActivity {
     private WebView loginWebView;
     private FrameLayout loginContainer;
 
-    // Native nav bar shown above the login WebView (BACK · RELOAD · SAVE CONNECT)
     private LinearLayout loginNavBar;
     private TextView btnSaveConnect;
 
@@ -50,7 +49,6 @@ public class MainActivity extends AppCompatActivity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        // ── LAYER 1: GAME WEBVIEW (hidden, zero-size) ──
         gameWebView = new WebView(this);
         gameWebView.setLayoutParams(new FrameLayout.LayoutParams(0, 0));
         applyWebViewSettings(gameWebView, false);
@@ -68,13 +66,11 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 injectUserScript(view);
                 CookieManager.getInstance().flush();
-                // After page finishes, verify if we are logged in and update the bridge
                 verifyGameWebViewSession();
             }
         });
         root.addView(gameWebView);
 
-        // ── LAYER 2: UI WEBVIEW (fills screen, shows main.html) ──
         uiWebView = new WebView(this);
         uiWebView.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -97,14 +93,12 @@ public class MainActivity extends AppCompatActivity {
         uiWebView.loadUrl("file:///android_asset/main.html");
         root.addView(uiWebView);
 
-        // ── LAYER 3: LOGIN OVERLAY ──
         loginContainer = new FrameLayout(this);
         loginContainer.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         loginContainer.setVisibility(View.INVISIBLE);
 
-        // ── Nav bar: BACK · RELOAD · SAVE CONNECT ──
         loginNavBar = buildLoginNavBar();
         FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -112,7 +106,6 @@ public class MainActivity extends AppCompatActivity {
         navParams.gravity = Gravity.TOP;
         loginContainer.addView(loginNavBar, navParams);
 
-        // ── Login WebView (below the nav bar) ──
         loginWebView = new WebView(this);
         int navHeightPx = (int) (56 * getResources().getDisplayMetrics().density);
         FrameLayout.LayoutParams wvParams = new FrameLayout.LayoutParams(
@@ -136,6 +129,9 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
+                if (bridge != null) {
+                    bridge.appendLog("debug", "loginWebView onPageFinished: " + url);
+                }
 
                 if (url == null) return;
 
@@ -169,10 +165,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Nav bar builder
-    // -------------------------------------------------------------------------
-
     private LinearLayout buildLoginNavBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -183,7 +175,6 @@ public class MainActivity extends AppCompatActivity {
         int padV = dp(8);
         bar.setPadding(padH, padV, padH, padV);
 
-        // BACK
         TextView back = pillButton("BACK", Color.parseColor("#2d2040"));
         back.setOnClickListener(v -> {
             if (loginWebView != null && loginWebView.canGoBack()) {
@@ -197,7 +188,6 @@ public class MainActivity extends AppCompatActivity {
         backP.setMargins(0, 0, dp(6), 0);
         bar.addView(back, backP);
 
-        // RELOAD
         TextView reload = pillButton("RELOAD", Color.parseColor("#1565C0"));
         reload.setOnClickListener(v -> {
             if (loginWebView != null) loginWebView.reload();
@@ -207,7 +197,6 @@ public class MainActivity extends AppCompatActivity {
         reloadP.setMargins(0, 0, dp(6), 0);
         bar.addView(reload, reloadP);
 
-        // SAVE CONNECT
         btnSaveConnect = pillButton("SAVE CONNECT", Color.parseColor("#00897B"));
         btnSaveConnect.setOnClickListener(v -> saveConnect());
         LinearLayout.LayoutParams saveP = new LinearLayout.LayoutParams(
@@ -246,97 +235,102 @@ public class MainActivity extends AppCompatActivity {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(24));
         if (looksLoggedIn) {
-            bg.setColor(Color.parseColor("#2E7D32")); // green — ready to save
+            bg.setColor(Color.parseColor("#2E7D32"));
             btnSaveConnect.setText("SAVE CONNECT \u2713");
         } else {
-            bg.setColor(Color.parseColor("#00897B")); // teal — neutral
+            bg.setColor(Color.parseColor("#00897B"));
             btnSaveConnect.setText("SAVE CONNECT");
         }
         btnSaveConnect.setBackground(bg);
     }
-
-    // -------------------------------------------------------------------------
-    // Public API
-    // -------------------------------------------------------------------------
 
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
         loginWebView.loadUrl("https://demonicscans.org");
         loginWebView.requestFocus();
+        if (bridge != null) bridge.appendLog("system", "Login overlay opened, loaded https://demonicscans.org");
     }
 
-    /**
-     * Called ONLY when the user explicitly presses SAVE CONNECT.
-     * Now with DOM‑based verification after reloading the game WebView.
-     */
     public void saveConnect() {
-        // STEP 1: flush cookies
-        CookieManager.getInstance().flush();
+        if (bridge != null) bridge.appendLog("system", "SAVE CONNECT clicked");
 
-        // STEP 2: capture any existing cookies
+        CookieManager.getInstance().flush();
         String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+        if (bridge != null) {
+            bridge.appendLog("debug", "Cookies after flush: " + (cookies != null ? cookies.length() + " chars" : "null"));
+            if (cookies != null && cookies.length() > 0) {
+                // Log first 100 chars for debugging (avoid flooding)
+                String shortCookies = cookies.length() > 100 ? cookies.substring(0, 100) + "..." : cookies;
+                bridge.appendLog("debug", "Cookie sample: " + shortCookies);
+            } else {
+                bridge.appendLog("error", "No cookies found after flush! Login may have failed.");
+            }
+        }
+
         if (cookies == null || cookies.length() < 10) {
-            // Not enough cookie data – do not close overlay
+            if (bridge != null) bridge.appendLog("error", "Cookie capture failed (length < 10) - aborting save");
             return;
         }
 
-        // STEP 3: hide overlay immediately (login WebView no longer needed)
         if (loginContainer != null) {
             loginContainer.setVisibility(View.INVISIBLE);
         }
 
-        // STEP 4: blank the login WebView to release resources
         if (loginWebView != null) {
             loginWebView.loadUrl("about:blank");
         }
 
-        // STEP 5: reload game WebView – this will trigger onPageFinished,
-        //         where we verify the session via DOM checks.
         if (gameWebView != null) {
+            if (bridge != null) bridge.appendLog("system", "Reloading game WebView to apply session");
             gameWebView.reload();
         }
 
-        // STEP 6: if the verification fails (unlikely), fallback to a short timeout
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (bridge != null && !bridge.isSessionVerified()) {
-                // Still not verified – force a final check and refresh UI
+                bridge.appendLog("warning", "Session not verified after 3 seconds - re-checking DOM");
                 verifyGameWebViewSession();
+                // Force UI refresh anyway
+                if (uiWebView != null) {
+                    uiWebView.evaluateJavascript(
+                        "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                }
             }
         }, 3000);
     }
 
-    /**
-     * Injects JavaScript into the game WebView to detect a logged‑in state.
-     * When a logout link or user menu is found, informs the bridge.
-     */
     private void verifyGameWebViewSession() {
         if (gameWebView == null || bridge == null) return;
+        bridge.appendLog("debug", "DOM verification running on game WebView");
         String js =
             "(function() {" +
             "   var logoutLink = document.querySelector('a[href*=\"logout\"], a[href*=\"signout\"]');" +
-            "   var userMenu = document.querySelector('.user-dropdown, .player-name, .profile-link');" +
-            "   if (logoutLink || userMenu) { return 'connected'; }" +
-            "   return 'disconnected';" +
+            "   var userMenu = document.querySelector('.user-dropdown, .player-name, .profile-link, .username');" +
+            "   var result = { found: false, element: null };" +
+            "   if (logoutLink) { result.found = true; result.element = 'logoutLink'; }" +
+            "   else if (userMenu) { result.found = true; result.element = 'userMenu'; }" +
+            "   return JSON.stringify(result);" +
             "})();";
         gameWebView.evaluateJavascript(js, value -> {
-            if (value != null && value.contains("connected")) {
-                bridge.setConnected(true);
-            } else {
-                // Optionally set false, but do not overwrite a valid session that might be loading slowly.
-                // We only set false if we are absolutely sure (no retry needed here).
+            if (bridge != null) {
+                bridge.appendLog("debug", "DOM check result: " + value);
+                if (value != null && value.contains("\"found\":true")) {
+                    bridge.appendLog("system", "✅ DOM verification SUCCESS – logged in indicators found.");
+                    bridge.setConnected(true);
+                } else {
+                    bridge.appendLog("warning", "❌ DOM verification FAILED – no logout link or user menu found.");
+                    bridge.setConnected(false);
+                }
             }
         });
     }
 
-    /** Closes overlay without capturing session (Back / cancel). */
     private void closeLoginOverlay() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
         if (loginWebView != null) {
             loginWebView.loadUrl("about:blank");
         }
-        // Refresh UI – connection may already be active
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
@@ -344,10 +338,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }, 400);
     }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
 
     private boolean handleLoginUrl(String url) {
         if (url == null) return false;
