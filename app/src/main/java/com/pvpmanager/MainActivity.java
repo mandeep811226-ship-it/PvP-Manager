@@ -38,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView btnSaveConnect;
     private AndroidBridge bridge;
 
-    // Cached cookies from login WebView
+    // Cached cookies captured while browsing in the login WebView
     private volatile String lastCapturedCookies = null;
 
     @Override
@@ -131,23 +131,27 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
+
+                // Capture cookies immediately on page load
                 String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
                 if (cookies != null && cookies.length() >= 10) {
                     lastCapturedCookies = cookies;
-                    Log.d("PvPManager", "Cookies captured: length=" + cookies.length());
+                    Log.d("PvPManager", "Cookies captured on page finish: length=" + cookies.length());
                     if (bridge != null) bridge.appendLog("debug", "Cookies captured length=" + cookies.length());
                 }
-                // Try again after 2 seconds (cookies set via XHR)
+
+                // Also try again after 2 seconds (some cookies are set via XHR after page load)
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     if (loginWebView == null) return;
                     CookieManager.getInstance().flush();
                     String delayedCookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
                     if (delayedCookies != null && delayedCookies.length() >= 10) {
                         lastCapturedCookies = delayedCookies;
-                        Log.d("PvPManager", "Delayed cookie capture OK");
-                        if (bridge != null) bridge.appendLog("debug", "Delayed capture: " + delayedCookies.length());
+                        Log.d("PvPManager", "Delayed cookie capture OK: length=" + delayedCookies.length());
+                        if (bridge != null) bridge.appendLog("debug", "Delayed capture: length=" + delayedCookies.length());
                     }
                 }, 2000);
+
                 if (bridge != null) bridge.appendLog("debug", "loginWebView loaded: " + url);
                 updateSaveConnectLabel(url);
             }
@@ -242,60 +246,104 @@ public class MainActivity extends AppCompatActivity {
         if (bridge != null) bridge.appendLog("system", "Login overlay opened");
     }
 
+    /**
+     * Called when the user taps "SAVE CONNECT".
+     *
+     * BUG FIX: The original code checked cookie length BEFORE the async evaluateJavascript
+     * callback returned, so it always saw 0 cookies and bailed out. All post-connect logic
+     * is now inside the callback (or the synchronous fast-path) so we only proceed once we
+     * have confirmed cookie data.
+     */
     public void saveConnect() {
-        Toast.makeText(this, "SAVE CONNECT pressed", Toast.LENGTH_SHORT).show();
         if (bridge == null) {
             Toast.makeText(this, "Bridge not ready", Toast.LENGTH_LONG).show();
             return;
         }
 
+        Toast.makeText(this, "Saving connection…", Toast.LENGTH_SHORT).show();
         bridge.appendLog("system", "SAVE CONNECT clicked");
 
-        // Use cached cookies
-        String cookies = lastCapturedCookies;
-        if (cookies == null || cookies.length() < 10) {
-            CookieManager.getInstance().flush();
-            cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-        }
-
-        // Sync from loginWebView's document.cookie
-        if (loginWebView != null) {
-            loginWebView.evaluateJavascript("document.cookie", value -> {
-                if (value != null && !value.equals("null") && value.length() > 5) {
-                    String[] pairs = value.split(";");
-                    for (String pair : pairs) {
-                        String[] kv = pair.trim().split("=", 2);
-                        if (kv.length == 2) {
-                            CookieManager.getInstance().setCookie("https://demonicscans.org", kv[0] + "=" + kv[1]);
-                        }
-                    }
-                    CookieManager.getInstance().flush();
-                    bridge.appendLog("debug", "Manually synced " + pairs.length + " cookies");
-                }
-            });
-        }
-
-        int cookieLen = (cookies == null ? 0 : cookies.length());
-        bridge.appendLog("debug", "Final cookie length: " + cookieLen);
-
-        if (cookieLen < 10) {
-            bridge.appendLog("error", "No valid session cookies (len=" + cookieLen + ")");
-            Toast.makeText(this, "No valid cookies – please login again", Toast.LENGTH_LONG).show();
+        // Fast path 1: use cookies captured during page load
+        String cached = lastCapturedCookies;
+        if (cached != null && cached.length() >= 10) {
+            bridge.appendLog("debug", "Using cached cookies, length=" + cached.length());
+            doConnect(cached);
             return;
         }
 
-        // Close overlay
+        // Fast path 2: flush and try CookieManager directly
+        CookieManager.getInstance().flush();
+        String cmCookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+        if (cmCookies != null && cmCookies.length() >= 10) {
+            bridge.appendLog("debug", "Using CookieManager cookies, length=" + cmCookies.length());
+            doConnect(cmCookies);
+            return;
+        }
+
+        // Slow path: read document.cookie from the loginWebView (async callback)
+        // We must NOT touch loginWebView or lastCapturedCookies outside of this callback.
+        if (loginWebView != null) {
+            bridge.appendLog("debug", "Trying document.cookie fallback (async)…");
+            loginWebView.evaluateJavascript("(function(){ return document.cookie; })()", jsValue -> {
+                // This callback already runs on the main thread.
+                String cookieStr = jsValue;
+                if (cookieStr != null) {
+                    // evaluateJavascript wraps strings in quotes; strip them
+                    cookieStr = cookieStr.replaceAll("^\"|\"$", "")
+                                        .replace("\\\"", "\"")
+                                        .replace("\\\\", "\\");
+                }
+
+                if (cookieStr != null && cookieStr.length() >= 10) {
+                    // Sync into CookieManager so gameWebView can share the session
+                    String[] pairs = cookieStr.split(";");
+                    for (String pair : pairs) {
+                        pair = pair.trim();
+                        int eq = pair.indexOf('=');
+                        if (eq > 0) {
+                            String k = pair.substring(0, eq).trim();
+                            String v = pair.substring(eq + 1).trim();
+                            CookieManager.getInstance().setCookie("https://demonicscans.org", k + "=" + v);
+                        }
+                    }
+                    CookieManager.getInstance().flush();
+                    bridge.appendLog("debug", "Synced " + pairs.length + " cookies from document.cookie, len=" + cookieStr.length());
+                    doConnect(cookieStr);
+                } else {
+                    bridge.appendLog("error", "No valid cookies found anywhere (len=" +
+                            (cookieStr == null ? "null" : cookieStr.length()) + ")");
+                    Toast.makeText(MainActivity.this,
+                            "No valid session — please log in first", Toast.LENGTH_LONG).show();
+                }
+            });
+        } else {
+            bridge.appendLog("error", "loginWebView is null — cannot read cookies");
+            Toast.makeText(this, "Login overlay not ready", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Completes the connect flow after valid cookies have been confirmed.
+     * Always called on the main thread.
+     */
+    private void doConnect(String confirmedCookies) {
+        bridge.appendLog("debug", "Confirmed cookie length=" + confirmedCookies.length());
+
+        // Close overlay and clear state AFTER we have confirmed cookies
         loginContainer.setVisibility(View.INVISIBLE);
         if (loginWebView != null) loginWebView.loadUrl("about:blank");
         lastCapturedCookies = null;
 
-        // Reload game WebView with delay
+        // Immediately mark as connected so UI updates right away
+        bridge.setConnected(true);
+
+        // Reload game WebView so it picks up the new session cookies
         if (gameWebView != null) {
-            bridge.appendLog("system", "Reloading game WebView in 800ms");
+            bridge.appendLog("system", "Reloading game WebView in 800 ms");
             new Handler(Looper.getMainLooper()).postDelayed(() -> gameWebView.reload(), 800);
         }
 
-        // Refresh UI
+        // Trigger a UI refresh after the game WebView has reloaded
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
@@ -306,6 +354,7 @@ public class MainActivity extends AppCompatActivity {
     private void verifyGameWebViewSession(String finalUrl) {
         if (gameWebView == null || bridge == null) return;
 
+        // Primary check: URL should be on demonicscans.org and not on a login/signup page
         boolean urlOk = finalUrl != null
                 && finalUrl.contains("demonicscans.org")
                 && !finalUrl.contains("signin")
@@ -313,22 +362,55 @@ public class MainActivity extends AppCompatActivity {
                 && !finalUrl.contains("register")
                 && !finalUrl.contains("signup");
 
+        // Secondary check: look for common logged-in DOM indicators.
+        // Uses a broad querySelector that also accepts any element with "player" or "user" in its id/class.
         String js = "(function() { " +
-                "  var tokensSpan = document.getElementById('stat-tokens'); " +
-                "  var userSpan = document.querySelector('.player-name, .username, .profile-name, .user-name'); " +
-                "  return JSON.stringify({ tokens: !!tokensSpan, user: !!userSpan }); " +
+                "  try {" +
+                "    var loggedOutIndicators = document.querySelectorAll('a[href*=\"signin\"], a[href*=\"login\"], form[action*=\"signin\"]');" +
+                "    var hasLogoutLink = !!document.querySelector('a[href*=\"logout\"], a[href*=\"signout\"]');" +
+                "    var hasLoggedInEl = !!document.getElementById('stat-tokens') || " +
+                "        !!document.querySelector('[class*=\"player\"], [class*=\"username\"], [id*=\"player\"], [id*=\"user-info\"]');" +
+                "    return JSON.stringify({ urlOk: " + urlOk + ", loggedOutLinks: loggedOutIndicators.length, hasLogoutLink: hasLogoutLink, hasLoggedInEl: hasLoggedInEl });" +
+                "  } catch(e) { return JSON.stringify({ error: e.message }); }" +
                 "})();";
 
         gameWebView.evaluateJavascript(js, result -> {
-            boolean domOk = result != null && (result.contains("\"tokens\":true") || result.contains("\"user\":true"));
-            if (bridge != null) {
-                bridge.appendLog("debug", "Verify: urlOk=" + urlOk + ", domOk=" + domOk);
-                if (domOk || urlOk) {
-                    bridge.appendLog("system", "✅ Session verified (" + (domOk ? "DOM" : "URL") + ")");
-                    bridge.setConnected(true);
-                } else {
-                    bridge.appendLog("warning", "❌ Session verification failed");
+            if (bridge == null) return;
+            boolean connected = false;
+            try {
+                // Treat having a logout link as the most reliable sign of being logged in
+                if (result != null && result.contains("\"hasLogoutLink\":true")) {
+                    connected = true;
+                } else if (result != null && result.contains("\"hasLoggedInEl\":true")) {
+                    connected = true;
+                } else if (urlOk) {
+                    // URL is fine and no disqualifying DOM signal — give benefit of the doubt
+                    // We also check cookies as a secondary confirmation
+                    CookieManager.getInstance().flush();
+                    String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+                    connected = (cookies != null && cookies.length() >= 10);
+                }
+            } catch (Exception e) {
+                // On parse failure, fall back to URL check + cookie check
+                CookieManager.getInstance().flush();
+                String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+                connected = urlOk && (cookies != null && cookies.length() >= 10);
+            }
+
+            bridge.appendLog("debug", "Session verify: urlOk=" + urlOk + " → connected=" + connected);
+            if (connected) {
+                bridge.appendLog("system", "✅ Session verified");
+                bridge.setConnected(true);
+            } else {
+                // Only mark disconnected when we have strong evidence (login page in URL or DOM)
+                boolean strongEvidence = (finalUrl != null && (
+                        finalUrl.contains("signin") || finalUrl.contains("login") ||
+                        finalUrl.contains("register") || finalUrl.contains("signup")));
+                if (strongEvidence) {
+                    bridge.appendLog("warning", "❌ Session invalid — on auth page");
                     bridge.setConnected(false);
+                } else {
+                    bridge.appendLog("debug", "Session uncertain — keeping existing state");
                 }
             }
         });
@@ -401,8 +483,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (gameWebView != null) gameWebView.destroy();
-        if (uiWebView != null) uiWebView.destroy();
-        if (loginWebView != null) loginWebView.destroy();
+        if (gameWebView != null) { gameWebView.destroy(); gameWebView = null; }
+        if (uiWebView != null) { uiWebView.destroy(); uiWebView = null; }
+        if (loginWebView != null) { loginWebView.destroy(); loginWebView = null; }
     }
 }
