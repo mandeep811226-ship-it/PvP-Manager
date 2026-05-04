@@ -122,6 +122,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // If the UI WebView drifted away from main.html (e.g. after LoginActivity
+        // closed and briefly caused a "File not found" blank screen), reload it.
+        if (uiWebView != null) {
+            String url = uiWebView.getUrl();
+            if (url == null || !url.equals("file:///android_asset/main.html")) {
+                uiWebView.loadUrl("file:///android_asset/main.html");
+            }
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         if (gameWebView != null) {
