@@ -133,6 +133,9 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                // Flush cookies on every page load so they are persisted incrementally.
+                // This ensures cookies are not lost if the user navigates away or the
+                // WebView is destroyed before we explicitly call flush().
                 CookieManager.getInstance().flush();
 
                 if (url == null) return;
@@ -143,7 +146,7 @@ public class MainActivity extends AppCompatActivity {
                     loginContainer.setVisibility(View.VISIBLE);
                 }
 
-                // Update SAVE CONNECT button to hint readiness
+                // Update SAVE CONNECT button label based on current URL
                 updateSaveConnectLabel(url);
             }
         });
@@ -275,59 +278,68 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Called when the user presses SAVE CONNECT.
-     * Flushes cookies while the WebView session is still alive, then closes overlay.
+     * Called ONLY when the user explicitly presses SAVE CONNECT.
+     *
+     * Fix: Flush cookies FIRST (synchronously within this call), THEN hide the
+     * overlay, THEN navigate loginWebView to about:blank. The original code
+     * called destroyLogin() via postDelayed which navigated loginWebView to
+     * about:blank BEFORE the flush completed, tearing down the session context
+     * and losing cookies. Now the order is strictly: flush → hide → blank →
+     * reload game → refresh UI.
      */
     public void saveConnect() {
+        // Step 1: Flush cookies immediately while the login WebView session is
+        // still fully alive. This is the critical capture step.
         CookieManager.getInstance().flush();
+
+        // Step 2: Hide the overlay immediately — no postDelayed needed here.
+        if (loginContainer != null) {
+            loginContainer.setVisibility(View.INVISIBLE);
+        }
+
+        // Step 3: Navigate login WebView away AFTER the overlay is hidden and
+        // cookies are already flushed to persistent storage.
+        if (loginWebView != null) {
+            loginWebView.loadUrl("about:blank");
+        }
+
+        // Step 4: Reload the game WebView so it picks up the newly saved session.
+        if (gameWebView != null) {
+            gameWebView.loadUrl("https://demonicscans.org/pvp.php");
+        }
+
+        // Step 5: A single short delay to let the game WebView begin loading
+        // before we tell the UI to refresh state. This is NOT a timing hack for
+        // login detection — it is purely to avoid querying state before the page
+        // load has even started. 600ms is sufficient for the HTTP request to fire.
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            CookieManager.getInstance().flush();
-            destroyLogin();
-        }, 300);
+            if (uiWebView != null) {
+                uiWebView.evaluateJavascript(
+                        "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+            }
+        }, 600);
     }
 
     /** Closes overlay without capturing session (Back / cancel). */
     private void closeLoginOverlay() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
-        loginWebView.loadUrl("about:blank");
-        notifyUiRefresh(400);
-    }
-
-    /**
-     * Hides overlay, reloads game session, refreshes UI state.
-     * Always called AFTER cookies are flushed.
-     */
-    public void destroyLogin() {
-        if (loginContainer == null) return;
-        loginContainer.setVisibility(View.INVISIBLE);
-        loginWebView.loadUrl("about:blank");
-
-        CookieManager.getInstance().flush();
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            CookieManager.getInstance().flush();
-
-            if (gameWebView != null) {
-                gameWebView.loadUrl("https://demonicscans.org/pvp.php");
-            }
-
-            notifyUiRefresh(800);
-        }, 500);
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private void notifyUiRefresh(long delayMs) {
+        if (loginWebView != null) {
+            loginWebView.loadUrl("about:blank");
+        }
+        // Refresh UI so connection state is re-read (it may already be connected
+        // from a prior session).
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
                         "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
-        }, delayMs);
+        }, 400);
     }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     private boolean handleLoginUrl(String url) {
         if (url == null) return false;
@@ -380,7 +392,7 @@ public class MainActivity extends AppCompatActivity {
     public void onBackPressed() {
         if (loginContainer != null &&
                 loginContainer.getVisibility() == View.VISIBLE) {
-            if (loginWebView.canGoBack()) {
+            if (loginWebView != null && loginWebView.canGoBack()) {
                 loginWebView.goBack();
             } else {
                 closeLoginOverlay();
