@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme backgrounds -->
+    <color name="bg_dark">#0a0612</color>
+    <color name="bg_card">#1a1422</color>
+    <color name="bg_card2">#2a1f36</color>
+
+    <!-- Gold accent -->
+    <color name="gold">#f2c072</color>
+    <color name="gold_dim">#7a5a28</color>
+
+    <!-- Text -->
+    <color name="text_primary">#f5e9d0</color>
+    <color name="text_muted">#a39580</color>
+
+    <!-- Status -->
+    <color name="connected_green">#22c55e</color>
+    <color name="disconnected_red">#ef4444</color>
+
+    <!-- HP bars -->
+    <color name="hp_ally">#4ade80</color>
+    <color name="hp_enemy">#f87171</color>
+
+    <!-- Result badges -->
+    <color name="result_win">#66bb6a</color>
+    <color name="result_loss">#ef5350</color>
+    <color name="result_tie">#90caf9</color>
+</resources>
