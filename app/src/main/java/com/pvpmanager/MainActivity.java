@@ -125,6 +125,7 @@ public class MainActivity extends AppCompatActivity {
 
                 // Detect successful login: navigated away from login/register pages
                 if (!url.equals("about:blank")
+                        && !url.contains("signin")
                         && !url.contains("login")
                         && !url.contains("register")
                         && url.contains("demonicscans.org")) {
@@ -168,7 +169,7 @@ public class MainActivity extends AppCompatActivity {
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE); // page will show once loaded
-        loginWebView.loadUrl("https://demonicscans.org/login.php");
+        loginWebView.loadUrl("https://demonicscans.org/signin.php");
         loginWebView.requestFocus();
     }
 
