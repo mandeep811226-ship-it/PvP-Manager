@@ -288,37 +288,43 @@ public class MainActivity extends AppCompatActivity {
      * reload game → refresh UI.
      */
     public void saveConnect() {
-        // Step 1: Flush cookies immediately while the login WebView session is
-        // still fully alive. This is the critical capture step.
-        CookieManager.getInstance().flush();
 
-        // Step 2: Hide the overlay immediately — no postDelayed needed here.
-        if (loginContainer != null) {
-            loginContainer.setVisibility(View.INVISIBLE);
-        }
+    // STEP 1: flush cookies while session is alive
+    CookieManager.getInstance().flush();
 
-        // Step 3: Navigate login WebView away AFTER the overlay is hidden and
-        // cookies are already flushed to persistent storage.
-        if (loginWebView != null) {
-            loginWebView.loadUrl("about:blank");
-        }
+    // STEP 2: VERIFY cookies exist BEFORE doing anything
+    String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
 
-        // Step 4: Reload the game WebView so it picks up the newly saved session.
-        if (gameWebView != null) {
-            gameWebView.loadUrl("https://demonicscans.org/pvp.php");
-        }
-
-        // Step 5: A single short delay to let the game WebView begin loading
-        // before we tell the UI to refresh state. This is NOT a timing hack for
-        // login detection — it is purely to avoid querying state before the page
-        // load has even started. 600ms is sufficient for the HTTP request to fire.
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript(
-                        "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-            }
-        }, 600);
+    if (cookies == null || cookies.length() < 10) {
+        // ❌ Do NOT close login if session not captured
+        return;
     }
+
+    // STEP 3: hide overlay
+    if (loginContainer != null) {
+        loginContainer.setVisibility(View.INVISIBLE);
+    }
+
+    // STEP 4: destroy login WebView AFTER verification
+    if (loginWebView != null) {
+        loginWebView.loadUrl("about:blank");
+    }
+
+    // STEP 5: reload game WebView (IMPORTANT: use reload, not loadUrl)
+    if (gameWebView != null) {
+        gameWebView.reload();
+    }
+
+    // STEP 6: refresh UI after short delay
+    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+        if (uiWebView != null) {
+            uiWebView.evaluateJavascript(
+                "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();",
+                null
+            );
+        }
+    }, 500);
+}
 
     /** Closes overlay without capturing session (Back / cancel). */
     private void closeLoginOverlay() {
