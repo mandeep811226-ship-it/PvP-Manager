@@ -28,6 +28,8 @@ public class AndroidBridge {
     private static final String KEY_DEBUG_LOGS = "debug_logs";
     private static final String KEY_POLL_INTERVAL = "poll_interval_ms";
     private static final String KEY_STRATEGY = "strategy_json";
+    private static final String KEY_SESSION_VERIFIED = "session_verified";
+    private static final String KEY_SESSION_TIMESTAMP = "session_timestamp";
 
     private final Context context;
     private final WebView gameWebView;
@@ -61,36 +63,60 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void logout() {
-        // Stop the bot before clearing the session.
+        // Stop bot and clear session
         prefs.edit().putBoolean(KEY_RUNNING, false).apply();
+        prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
         CookieHelper.clearAll();
         appendLog("system", "Logged out — cookies cleared.");
         notifyUiStateChanged();
     }
 
     // -------------------------------------------------------------------------
+    // SESSION VERIFICATION (called from native after DOM check)
+    // -------------------------------------------------------------------------
+
+    @JavascriptInterface
+    public void setConnected(boolean connected) {
+        if (connected) {
+            prefs.edit().putBoolean(KEY_SESSION_VERIFIED, true)
+                       .putLong(KEY_SESSION_TIMESTAMP, System.currentTimeMillis())
+                       .apply();
+            appendLog("system", "Session verified — connected.");
+        } else {
+            prefs.edit().remove(KEY_SESSION_VERIFIED).remove(KEY_SESSION_TIMESTAMP).apply();
+            appendLog("system", "Session invalid — disconnected.");
+        }
+        notifyUiStateChanged();
+    }
+
+    public boolean isSessionVerified() {
+        long ts = prefs.getLong(KEY_SESSION_TIMESTAMP, 0);
+        boolean verified = prefs.getBoolean(KEY_SESSION_VERIFIED, false);
+        // Session verification is considered valid for 10 minutes (keep fresh)
+        if (verified && (System.currentTimeMillis() - ts) < 10 * 60 * 1000) {
+            return true;
+        }
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
     // STATE
     // -------------------------------------------------------------------------
 
-    /**
-     * Called by the JS poll loop. Returns a JSON snapshot of the full app state.
-     *
-     * FIX: The "connected" field is derived from CookieHelper.isConnected(), which
-     * previously used a narrow hardcoded cookie-name allowlist that could miss the
-     * actual session cookie. CookieHelper has been updated to use a layered
-     * detection strategy that falls back to checking for any non-trivial cookie
-     * value — see CookieHelper.java for details.
-     */
     @JavascriptInterface
     public String getState() {
         try {
             JSONObject state = new JSONObject();
 
-            // Connected / running
-            boolean connected = CookieHelper.isConnected();
+            // Connected – use the verified flag from the DOM check
+            boolean connected = isSessionVerified();
+            // Extra fallback: if the flag is false but CookieHelper says true, trust the flag anyway?
+            if (!connected && CookieHelper.isConnected()) {
+                connected = true;
+            }
             state.put("connected", connected);
 
-            // If session expired (e.g. server cleared it), stop the bot automatically.
+            // If session expired (no flag and cookies gone), stop the bot
             boolean running = prefs.getBoolean(KEY_RUNNING, false);
             if (running && !connected) {
                 prefs.edit().putBoolean(KEY_RUNNING, false).apply();
@@ -117,7 +143,7 @@ public class AndroidBridge {
             // Logs
             state.put("logs", logBuffer.toString());
 
-            // Live match state (from cached window.__pvpmState snapshot)
+            // Live match state
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
                 JSONObject live = new JSONObject(cachedLive);
@@ -142,9 +168,6 @@ public class AndroidBridge {
         }
     }
 
-    /**
-     * Called by the UI poll loop to refresh live state from the game WebView.
-     */
     @JavascriptInterface
     public void refreshLiveState() {
         mainHandler.post(() -> {
@@ -178,7 +201,7 @@ public class AndroidBridge {
     @JavascriptInterface
     public void setRunning(boolean running) {
         // Guard: do not allow starting the bot without an active session.
-        if (running && !CookieHelper.isConnected()) {
+        if (running && !isSessionVerified()) {
             appendLog("system", "Cannot start bot — not connected.");
             notifyUiStateChanged();
             return;
