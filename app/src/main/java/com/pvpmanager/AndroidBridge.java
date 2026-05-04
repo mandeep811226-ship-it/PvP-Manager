@@ -53,35 +53,12 @@ public class AndroidBridge {
     @JavascriptInterface
     public void openLogin() {
         mainHandler.post(() -> {
-            // Open a full-screen login WebView overlay
-            Intent intent = new Intent(context, LoginActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-
-            // After LoginActivity finishes, reload main.html so the UI WebView
-            // doesn't get stuck on a blank/error page. We poll until the activity
-            // is gone (max ~5 seconds) then reload.
-            mainHandler.postDelayed(new Runnable() {
-                int attempts = 0;
-                @Override
-                public void run() {
-                    attempts++;
-                    if (uiWebView != null) {
-                        String url = uiWebView.getUrl();
-                        // If the UI WebView is no longer on main.html, restore it
-                        if (url == null || !url.equals("file:///android_asset/main.html")) {
-                            uiWebView.loadUrl("file:///android_asset/main.html");
-                            return;
-                        }
-                    }
-                    // Keep checking for up to 10 attempts (5 seconds)
-                    if (attempts < 10) {
-                        mainHandler.postDelayed(this, 500);
-                    }
-                    // Once stable, refresh UI state to reflect new login status
-                    notifyUiStateChanged();
-                }
-            }, 500);
+            // Show the login WebView overlay that lives inside MainActivity.
+            // This avoids launching a separate Activity, which was the cause of
+            // the "File not found" error on the uiWebView.
+            if (context instanceof MainActivity) {
+                ((MainActivity) context).showLogin();
+            }
         });
     }
 
@@ -99,11 +76,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public String getState() {
-        // We build the outer shell synchronously from prefs / cookies,
-        // then ask the game WebView for live match state.
-        // The live match state is written by pvp_manager.js to window.__pvpmState.
-        // We read it via evaluateJavascript and cache it; this method returns the
-        // last cached snapshot plus the static config fields.
         try {
             JSONObject state = new JSONObject();
 
@@ -156,7 +128,6 @@ public class AndroidBridge {
 
     /**
      * Called by the UI poll loop to refresh live state from the game WebView.
-     * Triggers an async evaluateJavascript, stores result in prefs.
      */
     @JavascriptInterface
     public void refreshLiveState() {
@@ -166,9 +137,7 @@ public class AndroidBridge {
                         "(function(){ return JSON.stringify(window.__pvpmState || null); })()",
                         value -> {
                             if (value != null && !value.equals("null")) {
-                                // value comes back as a JSON string (quoted string of JSON)
                                 try {
-                                    // evaluateJavascript wraps string results in quotes
                                     String unquoted = value;
                                     if (unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
                                         unquoted = unquoted.substring(1, unquoted.length() - 1)
@@ -193,7 +162,6 @@ public class AndroidBridge {
     @JavascriptInterface
     public void setRunning(boolean running) {
         prefs.edit().putBoolean(KEY_RUNNING, running).apply();
-        // Tell the userscript in the game WebView to start/stop
         String js = "if(window.__pvpmSetRunning) window.__pvpmSetRunning(" + running + ");";
         evaluateInGameWebView(js);
         appendLog("system", running ? "Bot started." : "Bot stopped.");
@@ -211,7 +179,6 @@ public class AndroidBridge {
             JSONObject obj = new JSONObject(raw);
             obj.put("enabled", enabled);
             prefs.edit().putString(KEY_STRATEGY, obj.toString()).apply();
-            // Mirror into game WebView localStorage
             String escaped = obj.toString().replace("'", "\\'");
             evaluateInGameWebView(
                 "localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');"
@@ -223,14 +190,12 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void saveStrategy(String jsonString) {
-        // jsonString is the entries array; wrap it with the current enabled flag
         try {
             JSONArray entries = new JSONArray(jsonString);
             String raw = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
             JSONObject obj = new JSONObject(raw);
             obj.put("entries", entries);
             prefs.edit().putString(KEY_STRATEGY, obj.toString()).apply();
-            // Mirror into game WebView localStorage
             String escaped = obj.toString().replace("'", "\\'");
             evaluateInGameWebView(
                 "localStorage.setItem('et_pvp_solo_strategy', '" + escaped + "');"
@@ -259,7 +224,6 @@ public class AndroidBridge {
         if ("poll_interval_ms".equals(key)) {
             prefs.edit().putString(KEY_POLL_INTERVAL, value).apply();
         } else if ("clear_history".equals(key)) {
-            // Clear match history from the cached live state
             try {
                 String cachedLive = prefs.getString("cached_live_state", null);
                 if (cachedLive != null) {
@@ -338,7 +302,6 @@ public class AndroidBridge {
     public void appendLog(String type, String message) {
         long ts = System.currentTimeMillis();
         logBuffer.append(ts).append("|").append(type).append("|").append(message).append("\n");
-        // Keep log under ~500 lines
         String s = logBuffer.toString();
         String[] lines = s.split("\n");
         if (lines.length > 500) {
@@ -354,7 +317,8 @@ public class AndroidBridge {
     private void notifyUiStateChanged() {
         mainHandler.post(() -> {
             if (uiWebView != null) {
-                uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                uiWebView.evaluateJavascript(
+                        "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
         });
     }
