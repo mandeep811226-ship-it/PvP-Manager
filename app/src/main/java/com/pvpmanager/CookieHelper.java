@@ -36,20 +36,29 @@ public class CookieHelper {
 
     /**
      * Returns true if the user appears to be logged in.
-     * We check for a non-empty cookie string for the game domain that contains
-     * a plausible session / user identifier key.
+     * Checks both "https://demonicscans.org" and "demonicscans.org" because
+     * Android's CookieManager may store cookies under either key depending on
+     * which WebView set them first.
      */
     public static boolean isConnected() {
-        String cookies = CookieManager.getInstance().getCookie(GAME_DOMAIN);
-        if (cookies == null || cookies.trim().isEmpty()) {
+        // Check both domain formats — CookieManager is inconsistent
+        String cookies1 = CookieManager.getInstance().getCookie("https://demonicscans.org");
+        String cookies2 = CookieManager.getInstance().getCookie("demonicscans.org");
+
+        String cookies = "";
+        if (cookies1 != null) cookies += cookies1;
+        if (cookies2 != null) cookies += cookies2;
+
+        if (cookies.trim().isEmpty()) {
             return false;
         }
-        // The site sets a cookie that contains the user's ID or session token.
-        // Accept any of the common session cookie names.
+        // Accept any common session cookie name
         return cookies.contains("PHPSESSID") ||
                cookies.contains("user_id") ||
                cookies.contains("uid") ||
-               cookies.contains("session");
+               cookies.contains("session") ||
+               cookies.contains("remember") ||
+               cookies.contains("auth");
     }
 
     /**
