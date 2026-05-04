@@ -1,11 +1,14 @@
 package com.pvpmanager;
 
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
@@ -13,6 +16,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -27,6 +32,10 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView loginWebView;
     private FrameLayout loginContainer;
+
+    // Native nav bar shown above the login WebView (BACK · RELOAD · SAVE CONNECT)
+    private LinearLayout loginNavBar;
+    private TextView btnSaveConnect;
 
     private AndroidBridge bridge;
 
@@ -87,18 +96,27 @@ public class MainActivity extends AppCompatActivity {
         root.addView(uiWebView);
 
         // ── LAYER 3: LOGIN OVERLAY ──
-        // Use INVISIBLE (NOT GONE). A View.GONE WebView fails to render
-        // on many Android versions — causes "File not found" immediately.
         loginContainer = new FrameLayout(this);
         loginContainer.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         loginContainer.setVisibility(View.INVISIBLE);
 
-        loginWebView = new WebView(this);
-        loginWebView.setLayoutParams(new FrameLayout.LayoutParams(
+        // ── Nav bar: BACK · RELOAD · SAVE CONNECT ──
+        loginNavBar = buildLoginNavBar();
+        FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+        navParams.gravity = Gravity.TOP;
+        loginContainer.addView(loginNavBar, navParams);
+
+        // ── Login WebView (below the nav bar) ──
+        loginWebView = new WebView(this);
+        int navHeightPx = (int) (56 * getResources().getDisplayMetrics().density);
+        FrameLayout.LayoutParams wvParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT);
+        wvParams.topMargin = navHeightPx;
         applyWebViewSettings(loginWebView, false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(loginWebView, true);
@@ -119,31 +137,20 @@ public class MainActivity extends AppCompatActivity {
 
                 if (url == null) return;
 
-                // Make overlay visible once the login page has actually loaded
+                // Make overlay visible once a real page has loaded
                 if (loginContainer.getVisibility() != View.VISIBLE
                         && url.startsWith("http")) {
                     loginContainer.setVisibility(View.VISIBLE);
                 }
 
-                // Detect successful login: navigated away from login/register pages
-                // The site redirects to bookmarks after login — any demonicscans.org
-                // page that is NOT the login/register page means login succeeded.
-                if (!url.equals("about:blank")
-                        && !url.contains("signin")
-                        && !url.contains("login")
-                        && !url.contains("register")
-                        && url.contains("demonicscans.org")) {
-                    // Use 1200ms delay to give CookieManager time to persist cookies
-                    loginWebView.postDelayed(() -> destroyLogin(), 1200);
-                }
+                // Update SAVE CONNECT button to hint readiness
+                updateSaveConnectLabel(url);
             }
         });
 
-        // Pre-warm the WebView with about:blank so it initialises its
-        // network stack before we ask it to load a real page.
         loginWebView.loadUrl("about:blank");
 
-        loginContainer.addView(loginWebView);
+        loginContainer.addView(loginWebView, wvParams);
         root.addView(loginContainer);
 
         setContentView(root);
@@ -165,71 +172,166 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Nav bar builder
+    // -------------------------------------------------------------------------
+
+    private LinearLayout buildLoginNavBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(Color.parseColor("#1a1025"));
+
+        int padH = dp(12);
+        int padV = dp(8);
+        bar.setPadding(padH, padV, padH, padV);
+
+        // BACK
+        TextView back = pillButton("BACK", Color.parseColor("#2d2040"));
+        back.setOnClickListener(v -> {
+            if (loginWebView != null && loginWebView.canGoBack()) {
+                loginWebView.goBack();
+            } else {
+                closeLoginOverlay();
+            }
+        });
+        LinearLayout.LayoutParams backP = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        backP.setMargins(0, 0, dp(6), 0);
+        bar.addView(back, backP);
+
+        // RELOAD
+        TextView reload = pillButton("RELOAD", Color.parseColor("#1565C0"));
+        reload.setOnClickListener(v -> {
+            if (loginWebView != null) loginWebView.reload();
+        });
+        LinearLayout.LayoutParams reloadP = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        reloadP.setMargins(0, 0, dp(6), 0);
+        bar.addView(reload, reloadP);
+
+        // SAVE CONNECT
+        btnSaveConnect = pillButton("SAVE CONNECT", Color.parseColor("#00897B"));
+        btnSaveConnect.setOnClickListener(v -> saveConnect());
+        LinearLayout.LayoutParams saveP = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.4f);
+        bar.addView(btnSaveConnect, saveP);
+
+        return bar;
+    }
+
+    private TextView pillButton(String text, int bgColor) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(12f);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding(dp(10), dp(10), dp(10), dp(10));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(bgColor);
+        bg.setCornerRadius(dp(24));
+        tv.setBackground(bg);
+        return tv;
+    }
+
+    private int dp(int val) {
+        return (int) (val * getResources().getDisplayMetrics().density);
+    }
+
+    private void updateSaveConnectLabel(String url) {
+        if (btnSaveConnect == null) return;
+        boolean looksLoggedIn = url != null
+                && url.contains("demonicscans.org")
+                && !url.contains("signin")
+                && !url.contains("login")
+                && !url.contains("register");
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(24));
+        if (looksLoggedIn) {
+            bg.setColor(Color.parseColor("#2E7D32")); // green — ready to save
+            btnSaveConnect.setText("SAVE CONNECT \u2713");
+        } else {
+            bg.setColor(Color.parseColor("#00897B")); // teal — neutral
+            btnSaveConnect.setText("SAVE CONNECT");
+        }
+        btnSaveConnect.setBackground(bg);
+    }
+
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
     /**
-     * Called by AndroidBridge.openLogin() on the main thread.
-     * Navigates the login WebView to the login page.
-     * The overlay becomes VISIBLE only after onPageFinished fires,
-     * so the user never sees a blank flash or an error page.
+     * Called by AndroidBridge.openLogin().
+     * Opens the main site so the user can log in, then press SAVE CONNECT.
      */
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
-        loginContainer.setVisibility(View.INVISIBLE); // page will show once loaded
-        loginWebView.loadUrl("https://demonicscans.org/signin.php");
+        loginContainer.setVisibility(View.INVISIBLE);
+        // Open main site — NOT signin.php directly — matches the reference APK flow.
+        loginWebView.loadUrl("https://demonicscans.org");
         loginWebView.requestFocus();
     }
 
     /**
-     * Hides the login overlay and reloads the game session.
-     * We wait 800 ms after flushing cookies so the CookieManager has time
-     * to persist the session cookies before gameWebView reloads pvp.php,
-     * and before the UI queries isConnected().
+     * Called when the user presses SAVE CONNECT.
+     * Flushes cookies while the WebView session is still alive, then closes overlay.
+     */
+    public void saveConnect() {
+        CookieManager.getInstance().flush();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            CookieManager.getInstance().flush();
+            destroyLogin();
+        }, 300);
+    }
+
+    /** Closes overlay without capturing session (Back / cancel). */
+    private void closeLoginOverlay() {
+        if (loginContainer == null) return;
+        loginContainer.setVisibility(View.INVISIBLE);
+        loginWebView.loadUrl("about:blank");
+        notifyUiRefresh(400);
+    }
+
+    /**
+     * Hides overlay, reloads game session, refreshes UI state.
+     * Always called AFTER cookies are flushed.
      */
     public void destroyLogin() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
         loginWebView.loadUrl("about:blank");
 
-        // Flush cookies first, then wait before doing anything else
         CookieManager.getInstance().flush();
 
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            // Second flush to make sure cookies are fully persisted
             CookieManager.getInstance().flush();
 
             if (gameWebView != null) {
                 gameWebView.loadUrl("https://demonicscans.org/pvp.php");
             }
 
-            // Wait another 600 ms for the game page to start loading,
-            // then tell the UI to refresh (so isConnected() sees the cookies)
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (uiWebView != null) {
-                    uiWebView.evaluateJavascript(
-                            "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-                }
-            }, 600);
-        }, 800);
+            notifyUiRefresh(800);
+        }, 500);
     }
 
-    /**
-     * URL policy for the login WebView.
-     *
-     * CRITICAL: Return false (let WebView load it) for ALL http/https URLs.
-     * Never restrict to demonicscans.org only — the login flow can pass
-     * through redirect chains on other domains (CDN, OAuth, etc.).
-     * Returning true for any redirect in that chain causes ERR_FILE_NOT_FOUND.
-     *
-     * Only intercept non-http schemes that WebView cannot handle natively.
-     */
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private void notifyUiRefresh(long delayMs) {
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (uiWebView != null) {
+                uiWebView.evaluateJavascript(
+                        "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+            }
+        }, delayMs);
+    }
+
     private boolean handleLoginUrl(String url) {
         if (url == null) return false;
-
-        // All http and https — always allow through
-        if (url.startsWith("https://") || url.startsWith("http://")) {
-            return false;
-        }
-
-        // intent:// and market:// — resolve via Android
+        if (url.startsWith("https://") || url.startsWith("http://")) return false;
         if (url.startsWith("intent://") || url.startsWith("market://")) {
             try {
                 Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
@@ -237,16 +339,12 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             return true;
         }
-
-        // tel:, mailto: — open with system apps
         if (url.startsWith("tel:") || url.startsWith("mailto:")) {
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             } catch (Exception ignored) {}
             return true;
         }
-
-        // Block everything else: file://, data://, javascript:, etc.
         return true;
     }
 
@@ -285,7 +383,7 @@ public class MainActivity extends AppCompatActivity {
             if (loginWebView.canGoBack()) {
                 loginWebView.goBack();
             } else {
-                destroyLogin();
+                closeLoginOverlay();
             }
             return;
         }
