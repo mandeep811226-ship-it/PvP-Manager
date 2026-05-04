@@ -389,13 +389,14 @@
 
   <!-- TOP BAR -->
   <div id="topbar">
-    <span id="conn-dot"></span>
-    <span id="conn-label">Disconnected</span>
-    <div class="spacer"></div>
-    <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
-    <button class="btn btn-ghost" id="btn-login" onclick="doLogin()">Login</button>
-    <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
-  </div>
+  <span id="conn-dot"></span>
+  <span id="conn-label">Disconnected</span>
+  <div class="spacer"></div>
+  <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
+  <button class="btn btn-ghost" id="btn-login" onclick="doLogin()">Login</button>
+  <button class="btn btn-ghost btn-sm" onclick="Android.dumpCookies(); alert('Cookie dump - check logs');" title="Dump cookies">🍪</button>
+  <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
+</div>
 
   <!-- STATS ROW -->
   <div id="stats-row">
