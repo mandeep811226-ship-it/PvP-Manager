@@ -53,9 +53,9 @@ public class AndroidBridge {
     @JavascriptInterface
     public void openLogin() {
         mainHandler.post(() -> {
-            // Show the login WebView overlay that lives inside MainActivity.
-            // This avoids launching a separate Activity, which was the cause of
-            // the "File not found" error on the uiWebView.
+            // Opens signin.php inside the login WebView overlay in MainActivity.
+            // Using an overlay avoids launching a separate Activity (which caused
+            // the "File not found" error on the uiWebView).
             if (context instanceof MainActivity) {
                 ((MainActivity) context).showLogin();
             }
