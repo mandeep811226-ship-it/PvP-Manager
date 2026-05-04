@@ -19,6 +19,7 @@
     --red:#ef4444;
     --red-dim:rgba(239,68,68,0.15);
     --blue:#60a5fa;
+    --orange:#fb923c;
     --radius:10px;
     --font:system-ui,-apple-system,'Segoe UI',sans-serif;
   }
@@ -223,10 +224,14 @@
     align-self:flex-start;
     margin-top:1px;
   }
-  .log-badge.info{background:#333;color:#ccc}
-  .log-badge.win{background:rgba(102,187,106,0.2);color:#66bb6a}
-  .log-badge.loss{background:rgba(239,83,80,0.2);color:#ef5350}
-  .log-badge.system{background:var(--gold-dim);color:var(--gold)}
+  /* FIX: Added missing badge colour classes for all log types used by AndroidBridge */
+  .log-badge.info   {background:#333;color:#ccc}
+  .log-badge.debug  {background:rgba(96,165,250,0.15);color:#60a5fa}
+  .log-badge.system {background:var(--gold-dim);color:var(--gold)}
+  .log-badge.warning{background:rgba(251,146,60,0.2);color:#fb923c}
+  .log-badge.error  {background:rgba(239,68,68,0.2);color:#ef4444}
+  .log-badge.win    {background:rgba(102,187,106,0.2);color:#66bb6a}
+  .log-badge.loss   {background:rgba(239,83,80,0.2);color:#ef5350}
   .log-msg{color:var(--text);word-break:break-word;flex:1}
 
   /* ---- STRATEGY TAB ---- */
@@ -394,7 +399,7 @@
   <div class="spacer"></div>
   <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
   <button class="btn btn-ghost" id="btn-login" onclick="doLogin()">Login</button>
-  <button class="btn btn-ghost btn-sm" onclick="Android.dumpCookies(); alert('Cookie dump - check logs');" title="Dump cookies">🍪</button>
+  <button class="btn btn-ghost btn-sm" onclick="Android.dumpCookies(); showToast('Cookie dump — check logs');" title="Dump cookies">🍪</button>
   <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
 </div>
 
@@ -490,7 +495,7 @@
             <div class="setting-sub">How often to check battle state</div>
           </div>
           <input type="number" id="poll-interval-input" value="1500" min="500" max="10000"
-            style="width:80px" onchange="Android.setConfigValue('poll_interval_ms', this.value)"/>
+            style="width:80px" onchange="onPollIntervalChange(this.value)"/>
         </div>
         <div class="setting-row" style="border-bottom:none">
           <div>
@@ -498,7 +503,7 @@
             <div class="setting-sub">Show verbose output in Battle tab</div>
           </div>
           <label class="toggle">
-            <input type="checkbox" id="debug-toggle" onchange="Android.setConfigBool('debug_logs', this.checked)"/>
+            <input type="checkbox" id="debug-toggle" onchange="onDebugToggleChange(this.checked)"/>
             <span class="toggle-track"></span>
             <span class="toggle-thumb"></span>
           </label>
@@ -521,17 +526,28 @@ var _strategyEntries = [];
 var _strategyDirty = false;
 var _skillList = [];
 var _pollTimer = null;
+var _currentPollInterval = 2500;
 var _isRunning = false;
 var _lastLogHash = '';
 var _lastHistLen = -1;
 var _toastTimer = null;
 
+// FIX: Debounce guard — tracks when the user last interacted with settings toggles.
+// applyState() will not reset a toggle for 3 s after the user touched it, preventing
+// the "toggle flips back" bug caused by the async SharedPreferences write racing
+// against the next poll tick.
+var _debugToggleLastChanged = 0;
+var _pollIntervalLastChanged = 0;
+var SETTINGS_DEBOUNCE_MS = 3000;
+
 // =============================================================================
 // POLL LOOP
 // =============================================================================
-function startPoll() {
+function startPoll(intervalMs) {
   if (_pollTimer) clearInterval(_pollTimer);
-  _pollTimer = setInterval(tick, 2500);
+  var ms = intervalMs || _currentPollInterval || 2500;
+  _currentPollInterval = ms;
+  _pollTimer = setInterval(tick, ms);
   tick();
 }
 
@@ -545,8 +561,31 @@ function tick() {
   applyState(s);
 }
 
-// Expose for native to call directly
+// Expose for native to call directly after state-changing operations
 window.__pvpmUiRefresh = tick;
+
+// =============================================================================
+// SETTINGS CHANGE HANDLERS
+// These handlers mark the debounce timestamp BEFORE calling the bridge, so the
+// next tick does not immediately reset the control to the old value.
+// =============================================================================
+function onDebugToggleChange(checked) {
+  _debugToggleLastChanged = Date.now();
+  if (window.Android) {
+    try { Android.setConfigBool('debug_logs', checked); } catch(e) {}
+  }
+  showToast(checked ? 'Debug logs ON' : 'Debug logs OFF');
+}
+
+function onPollIntervalChange(value) {
+  _pollIntervalLastChanged = Date.now();
+  var ms = Math.max(500, Math.min(10000, parseInt(value, 10) || 1500));
+  if (window.Android) {
+    try { Android.setConfigValue('poll_interval_ms', String(ms)); } catch(e) {}
+  }
+  // Restart the poll timer with the new interval
+  startPoll(ms);
+}
 
 // =============================================================================
 // STATE → DOM
@@ -619,9 +658,25 @@ function applyState(s) {
   }
   if (_activeTab === 'settings') {
     var cfg = s.config || {};
-    document.getElementById('debug-toggle').checked = !!cfg.debugLogs;
+    var now = Date.now();
+
+    // FIX: Only update debug toggle from remote state if the user has NOT interacted
+    // with it recently. This prevents the "toggle flips back" race condition.
+    if (now - _debugToggleLastChanged > SETTINGS_DEBOUNCE_MS) {
+      document.getElementById('debug-toggle').checked = !!cfg.debugLogs;
+    }
+
+    // FIX: Only update poll interval if the user is not currently editing it AND
+    // the debounce window has passed.
     var pi = document.getElementById('poll-interval-input');
-    if (document.activeElement !== pi) pi.value = cfg.pollIntervalMs || 1500;
+    if (document.activeElement !== pi && now - _pollIntervalLastChanged > SETTINGS_DEBOUNCE_MS) {
+      var newInterval = cfg.pollIntervalMs || 1500;
+      pi.value = newInterval;
+      // FIX: Restart the poll loop if the stored interval differs from the running one
+      if (newInterval !== _currentPollInterval) {
+        startPoll(newInterval);
+      }
+    }
   }
 }
 
@@ -642,7 +697,7 @@ function renderLogs(raw) {
   for (var i = lines.length - 1; i >= start; i--) {
     var parts = lines[i].split('|');
     if (parts.length < 3) continue;
-    var ts  = parseInt(parts[0], 10);
+    var ts   = parseInt(parts[0], 10);
     var type = parts[1];
     var msg  = parts.slice(2).join('|');
     html += '<div class="log-entry">' +
@@ -746,26 +801,22 @@ function renderStrategyEntries() {
     var isNumeric = (cond.type !== 'always' && cond.type !== 'preceding_failed');
     var isFixed   = (typeof e.countTarget === 'number');
 
-    // --- Skill select ---
     var skillOpts = '<option value="0"' + (e.skillId === '0' ? ' selected' : '') + '>Slash (Basic)</option>';
     for (var j = 0; j < _skillList.length; j++) {
       var sk = _skillList[j];
       skillOpts += '<option value="' + esc(sk.id) + '"' + (e.skillId === sk.id ? ' selected' : '') + '>' + esc(sk.label) + '</option>';
     }
 
-    // --- Condition type select ---
     var condOpts = '';
     for (var k = 0; k < COND_TYPES.length; k++) {
       condOpts += '<option value="' + COND_TYPES[k][0] + '"' + (cond.type === COND_TYPES[k][0] ? ' selected' : '') + '>' + COND_TYPES[k][1] + '</option>';
     }
 
-    // --- Op select ---
     var opOpts = '';
     for (var o = 0; o < OPS.length; o++) {
       opOpts += '<option value="' + OPS[o] + '"' + (cond.op === OPS[o] ? ' selected' : '') + '>' + OPS[o] + '</option>';
     }
 
-    // --- Count target select ---
     var ctKey = (typeof e.countTarget === 'number') ? 'num' : e.countTarget;
     var ctOpts =
       '<option value="forever"'    + (ctKey === 'forever'    ? ' selected' : '') + '>Forever</option>' +
@@ -774,13 +825,11 @@ function renderStrategyEntries() {
 
     html += '<div class="strategy-entry">';
 
-    // Row: skill
     html += '<div class="entry-row">' +
       '<span class="entry-label">#' + (i + 1) + '</span>' +
       '<select onchange="onEntryChange(' + i + ',\'skillId\',this.value)">' + skillOpts + '</select>' +
       '</div>';
 
-    // Row: condition
     html += '<div class="entry-row"><span class="entry-label">Condition</span>' +
       '<select onchange="onEntryChange(' + i + ',\'condType\',this.value)">' + condOpts + '</select>';
     if (isNumeric) {
@@ -792,8 +841,6 @@ function renderStrategyEntries() {
     }
     html += '</div>';
 
-    // Row: count
-    // FIX: use a proper data attribute + separate input; avoids the broken ternary-in-attribute bug
     html += '<div class="entry-row"><span class="entry-label">Count</span>' +
       '<select onchange="onCountSelectChange(' + i + ',this.value)">' + ctOpts + '</select>';
     if (isFixed) {
@@ -801,7 +848,6 @@ function renderStrategyEntries() {
     }
     html += '</div>';
 
-    // Row: flags
     html += '<div class="entry-row">' +
       '<label style="display:flex;align-items:center;gap:5px;font-size:11px">' +
         '<input type="checkbox"' + (e.recycle ? ' checked' : '') + ' onchange="onEntryChange(' + i + ',\'recycle\',this.checked)"/> Recycle' +
@@ -813,27 +859,24 @@ function renderStrategyEntries() {
     }
     html += '</div>';
 
-    // Row: move / remove actions
     html += '<div class="entry-actions">';
     if (i > 0)                             html += '<button class="btn btn-ghost btn-sm" onclick="moveEntry(' + i + ',-1)">↑</button>';
     if (i < _strategyEntries.length - 1)   html += '<button class="btn btn-ghost btn-sm" onclick="moveEntry(' + i + ',1)">↓</button>';
     html += '<button class="btn btn-danger btn-sm" onclick="removeStrategyEntry(' + i + ')">× Remove</button>';
     html += '</div>';
 
-    html += '</div>'; // .strategy-entry
+    html += '</div>';
   }
 
   container.innerHTML = html;
 }
 
-// Separate handler for the count-target <select> to cleanly handle the "num" → fixed-count case
 function onCountSelectChange(idx, value) {
   var e = _strategyEntries[idx];
   if (!e) return;
   if (value === 'forever' || value === 'until_fail') {
     e.countTarget = value;
   } else {
-    // "num" selected: default to 1 if not already a number
     e.countTarget = (typeof e.countTarget === 'number') ? e.countTarget : 1;
   }
   _strategyDirty = true;
@@ -954,11 +997,11 @@ function switchTab(name) {
     renderStrategyEntries();
   }
   if (name === 'history' && _state) {
-    _lastHistLen = -1; // force re-render
+    _lastHistLen = -1;
     renderHistory(_state.matchHistory || []);
   }
   if (name === 'battle' && _state) {
-    _lastLogHash = ''; // force re-render
+    _lastLogHash = '';
     renderLogs(_state.logs || '');
   }
 }
@@ -995,7 +1038,7 @@ function esc(s) {
 // INIT
 // =============================================================================
 document.addEventListener('DOMContentLoaded', function() {
-  startPoll();
+  startPoll(2500);
 });
 </script>
 </body>
