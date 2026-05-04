@@ -43,7 +43,13 @@ jobs:
         run: |
           sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-      # 5. Make gradlew executable
+      # 5. Download gradle-wrapper.jar (binary, cannot be committed as text)
+      - name: Download gradle-wrapper.jar
+        run: |
+          curl -L -o gradle/wrapper/gradle-wrapper.jar \
+            https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar
+
+      # 6. Make gradlew executable
       - name: Make gradlew executable
         run: chmod +x gradlew
 
