@@ -1,9 +1,12 @@
 package com.pvpmanager;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -17,24 +20,29 @@ import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends AppCompatActivity {
 
+    // Exposed as package-level so AndroidBridge can reference them
     public static WebView gameWebView;
     public static WebView uiWebView;
+
+    // Login overlay WebView — lives inside MainActivity, never a separate Activity
+    private WebView loginWebView;
+    private FrameLayout loginContainer;
+
     private AndroidBridge bridge;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Enable WebView debugging in debug builds
         WebView.setWebContentsDebuggingEnabled(true);
 
-        // Root layout: full-screen FrameLayout
+        // Root layout: full-screen FrameLayout that stacks all layers
         FrameLayout root = new FrameLayout(this);
         root.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        // --- GAME WEBVIEW (hidden, runs the game) ---
+        // ── LAYER 1: GAME WEBVIEW (hidden, zero-size, runs game logic) ──
         gameWebView = new WebView(this);
         gameWebView.setLayoutParams(new FrameLayout.LayoutParams(0, 0));
         applyWebViewSettings(gameWebView, false);
@@ -48,26 +56,69 @@ public class MainActivity extends AppCompatActivity {
         });
         root.addView(gameWebView);
 
-        // --- UI WEBVIEW (fills screen, shows main.html) ---
+        // ── LAYER 2: UI WEBVIEW (fills screen, shows main.html) ──
         uiWebView = new WebView(this);
         uiWebView.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         applyWebViewSettings(uiWebView, true);
 
-        // Create and attach the JS bridge
         bridge = new AndroidBridge(this, gameWebView, uiWebView);
         uiWebView.addJavascriptInterface(bridge, "Android");
 
         uiWebView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // Keep all navigation inside the UI WebView
-                return false;
+                return false; // keep all navigation inside the UI WebView
             }
         });
         uiWebView.loadUrl("file:///android_asset/main.html");
         root.addView(uiWebView);
+
+        // ── LAYER 3: LOGIN OVERLAY (hidden by default, shown on demand) ──
+        loginContainer = new FrameLayout(this);
+        loginContainer.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        loginContainer.setVisibility(View.GONE); // hidden until needed
+
+        loginWebView = new WebView(this);
+        loginWebView.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        applyWebViewSettings(loginWebView, false);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(loginWebView, true);
+
+        loginWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return handleLoginUrl(view, request.getUrl().toString());
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleLoginUrl(view, url);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                CookieManager.getInstance().flush();
+
+                // Detect successful login: navigated away from login/register pages
+                if (url != null
+                        && !url.contains("login")
+                        && !url.contains("register")
+                        && url.contains("demonicscans.org")) {
+
+                    // Give cookies a moment to settle, then close overlay
+                    loginWebView.postDelayed(() -> destroyLogin(), 300);
+                }
+            }
+        });
+
+        loginContainer.addView(loginWebView);
+        root.addView(loginContainer);
 
         setContentView(root);
 
@@ -86,6 +137,74 @@ public class MainActivity extends AppCompatActivity {
         } else {
             startService(serviceIntent);
         }
+    }
+
+    /**
+     * Shows the login WebView overlay. Called from AndroidBridge.openLogin().
+     * Runs on the main thread only.
+     */
+    public void showLogin() {
+        if (loginContainer == null || loginWebView == null) return;
+        loginWebView.loadUrl("https://demonicscans.org/login.php");
+        loginContainer.setVisibility(View.VISIBLE);
+        loginWebView.requestFocus();
+    }
+
+    /**
+     * Hides and resets the login overlay. Called after successful login
+     * or when the user presses Back while on the login screen.
+     */
+    public void destroyLogin() {
+        if (loginContainer == null) return;
+        loginContainer.setVisibility(View.GONE);
+        loginWebView.loadUrl("about:blank"); // release any held page
+        CookieManager.getInstance().flush();
+
+        // Reload game WebView so it picks up the fresh session cookies
+        if (gameWebView != null) {
+            gameWebView.loadUrl("https://demonicscans.org/pvp.php");
+        }
+
+        // Notify the UI to refresh login state (LED, button label, etc.)
+        if (uiWebView != null) {
+            uiWebView.evaluateJavascript(
+                    "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+        }
+    }
+
+    /**
+     * Handle URL navigation inside the login WebView.
+     * Keep demonicscans.org pages inside; open everything else externally.
+     */
+    private boolean handleLoginUrl(WebView view, String url) {
+        if (url == null) return false;
+
+        if (url.startsWith("https://demonicscans.org") ||
+                url.startsWith("http://demonicscans.org")) {
+            return false; // let WebView handle it normally
+        }
+
+        if (url.startsWith("intent://") || url.startsWith("market://") ||
+                url.startsWith("tel:") || url.startsWith("mailto:")) {
+            try {
+                Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                startActivity(intent);
+            } catch (Exception e) {
+                // ignore unresolvable intents
+            }
+            return true;
+        }
+
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            } catch (Exception e) {
+                // ignore
+            }
+            return true;
+        }
+
+        return true; // block file://, data://, unknown schemes
     }
 
     private void applyWebViewSettings(WebView webView, boolean allowFileAccess) {
@@ -113,7 +232,6 @@ public class MainActivity extends AppCompatActivity {
             is.read(buffer);
             is.close();
             String script = new String(buffer, StandardCharsets.UTF_8);
-            // Wrap in IIFE to avoid polluting global scope
             String wrapped = "(function(){\n" + script + "\n})();";
             view.evaluateJavascript(wrapped, null);
         } catch (IOException e) {
@@ -121,27 +239,28 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Handle back button: close login overlay first if it is visible.
+     */
     @Override
-    protected void onResume() {
-        super.onResume();
-        // If the UI WebView drifted away from main.html (e.g. after LoginActivity
-        // closed and briefly caused a "File not found" blank screen), reload it.
-        if (uiWebView != null) {
-            String url = uiWebView.getUrl();
-            if (url == null || !url.equals("file:///android_asset/main.html")) {
-                uiWebView.loadUrl("file:///android_asset/main.html");
+    public void onBackPressed() {
+        if (loginContainer != null &&
+                loginContainer.getVisibility() == View.VISIBLE) {
+            if (loginWebView.canGoBack()) {
+                loginWebView.goBack();
+            } else {
+                destroyLogin();
             }
+            return;
         }
+        super.onBackPressed();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (gameWebView != null) {
-            gameWebView.destroy();
-        }
-        if (uiWebView != null) {
-            uiWebView.destroy();
-        }
+        if (gameWebView != null) gameWebView.destroy();
+        if (uiWebView != null)   uiWebView.destroy();
+        if (loginWebView != null) loginWebView.destroy();
     }
 }
