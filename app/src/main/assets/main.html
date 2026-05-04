@@ -678,4 +678,342 @@ function applyState(s) {
   if (_activeTab === 'history') renderHistory(s.matchHistory || []);
 
   // settings
-  if (_activeTab === 'settings
+  if (_activeTab === 'settings') {
+    var cfg = s.config || {};
+    document.getElementById('debug-toggle').checked = !!cfg.debugLogs;
+    document.getElementById('poll-interval-input').value = cfg.pollIntervalMs || 1500;
+  }
+}
+
+// =============================================================================
+// LOGS
+// =============================================================================
+var _lastLogHash = '';
+function renderLogs(raw) {
+  if (raw === _lastLogHash) return;
+  _lastLogHash = raw;
+  var container = document.getElementById('log-container');
+  var lines = (raw || '').trim().split('\n').filter(Boolean);
+  if (!lines.length) {
+    container.innerHTML = '<div class="empty-state">No logs yet.</div>';
+    return;
+  }
+  var html = '';
+  for (var i = lines.length - 1; i >= Math.max(0, lines.length - 300); i--) {
+    var parts = lines[i].split('|');
+    if (parts.length < 3) continue;
+    var ts = parseInt(parts[0]);
+    var type = parts[1];
+    var msg = parts.slice(2).join('|');
+    var timeStr = tsToHMS(ts);
+    html += '<div class="log-entry">' +
+      '<span class="log-ts">' + esc(timeStr) + '</span>' +
+      '<span class="log-badge ' + esc(type) + '">' + esc(type) + '</span>' +
+      '<span class="log-msg">' + esc(msg) + '</span>' +
+      '</div>';
+  }
+  container.innerHTML = html || '<div class="empty-state">No logs yet.</div>';
+}
+
+function tsToHMS(ms) {
+  var d = new Date(ms);
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+// =============================================================================
+// STRATEGY
+// =============================================================================
+var _strategyDirty = false;
+
+function onStrategyToggle(val) {
+  if (window.Android) Android.setStrategyEnabled(val);
+  showToast(val ? 'Strategy ON' : 'Strategy OFF');
+}
+
+function addStrategyEntry() {
+  _strategyEntries.push({
+    skillId: '0',
+    condition: { type: 'always', op: '>=', value: 0 },
+    countTarget: 'forever',
+    recycle: false,
+    forceQuota: false
+  });
+  _strategyDirty = true;
+  renderStrategyEntries();
+  saveStrategy();
+}
+
+function removeStrategyEntry(idx) {
+  _strategyEntries.splice(idx, 1);
+  renderStrategyEntries();
+  saveStrategy();
+}
+
+function moveEntry(idx, dir) {
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= _strategyEntries.length) return;
+  var tmp = _strategyEntries[idx];
+  _strategyEntries[idx] = _strategyEntries[newIdx];
+  _strategyEntries[newIdx] = tmp;
+  renderStrategyEntries();
+  saveStrategy();
+}
+
+function saveStrategy() {
+  if (window.Android) Android.saveStrategy(JSON.stringify(_strategyEntries));
+}
+
+function onEntryChange(idx, field, value) {
+  var e = _strategyEntries[idx];
+  if (!e) return;
+  if (field === 'skillId') e.skillId = value;
+  else if (field === 'condType') e.condition.type = value;
+  else if (field === 'condOp') e.condition.op = value;
+  else if (field === 'condVal') e.condition.value = parseFloat(value) || 0;
+  else if (field === 'countTarget') {
+    if (value === 'forever' || value === 'until_fail') e.countTarget = value;
+    else e.countTarget = parseInt(value) || 1;
+  }
+  else if (field === 'recycle') e.recycle = value;
+  else if (field === 'forceQuota') e.forceQuota = value;
+  renderStrategyEntries();
+  saveStrategy();
+}
+
+function renderStrategyEntries() {
+  var container = document.getElementById('strategy-entries');
+  if (!_strategyEntries.length) {
+    container.innerHTML = '<div class="empty-state">No strategy entries yet.<br>Add one below.</div>';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < _strategyEntries.length; i++) {
+    var e = _strategyEntries[i];
+    var cond = e.condition || {};
+    var isNumeric = cond.type !== 'always' && cond.type !== 'preceding_failed';
+    var isFixed = typeof e.countTarget === 'number';
+
+    // skill options
+    var skillOpts = '<option value="0"' + (e.skillId==='0'?' selected':'') + '>Slash (Basic)</option>';
+    for (var j = 0; j < _skillList.length; j++) {
+      var sk = _skillList[j];
+      skillOpts += '<option value="' + esc(sk.id) + '"' + (e.skillId===sk.id?' selected':'') + '>' + esc(sk.label) + '</option>';
+    }
+
+    // condition type options
+    var condTypes = [
+      ['always','Always'],
+      ['target_hp_pct','Target HP%'],
+      ['self_hp_pct','My HP%'],
+      ['tokens','Tokens'],
+      ['atk_vs_def','ATK vs DEF'],
+      ['def_vs_atk','DEF vs ATK'],
+      ['preceding_failed','When all preceding fail']
+    ];
+    var condOpts = '';
+    for (var k = 0; k < condTypes.length; k++) {
+      condOpts += '<option value="' + condTypes[k][0] + '"' + (cond.type===condTypes[k][0]?' selected':'') + '>' + condTypes[k][1] + '</option>';
+    }
+
+    // op options
+    var ops = ['>=','<=','>','<','=='];
+    var opOpts = '';
+    for (var o = 0; o < ops.length; o++) {
+      opOpts += '<option value="' + ops[o] + '"' + (cond.op===ops[o]?' selected':'') + '>' + ops[o] + '</option>';
+    }
+
+    // count target options
+    var ctVal = typeof e.countTarget === 'number' ? 'num' : e.countTarget;
+    var ctOpts = '<option value="forever"' + (ctVal==='forever'?' selected':'') + '>Forever</option>' +
+                 '<option value="until_fail"' + (ctVal==='until_fail'?' selected':'') + '>Until fails</option>' +
+                 '<option value="num"' + (ctVal==='num'?' selected':'') + '>Fixed count</option>';
+
+    html += '<div class="strategy-entry">';
+    html += '<div class="entry-row"><span class="entry-label">#' + (i+1) + '</span>';
+    html += '<div class="entry-skill-wrap">';
+    html += '<select onchange="onEntryChange(' + i + ',\'skillId\',this.value)">' + skillOpts + '</select>';
+    html += '</div></div>';
+
+    html += '<div class="entry-row"><span class="entry-label">Condition</span>';
+    html += '<select onchange="onEntryChange(' + i + ',\'condType\',this.value)">' + condOpts + '</select>';
+    if (isNumeric) {
+      html += '<select onchange="onEntryChange(' + i + ',\'condOp\',this.value)">' + opOpts + '</select>';
+      html += '<input type="number" value="' + (cond.value||0) + '" style="width:60px" onchange="onEntryChange(' + i + ',\'condVal\',this.value)"/>';
+      if (cond.type === 'target_hp_pct' || cond.type === 'self_hp_pct') html += '<span style="color:var(--muted);font-size:11px">%</span>';
+    }
+    html += '</div>';
+
+    html += '<div class="entry-row"><span class="entry-label">Count</span>';
+    html += '<select onchange="onEntryChange(' + i + ',\'countTarget\',this.value=\'num\'?'+(isFixed?e.countTarget:1)+':this.value)">' + ctOpts + '</select>';
+    if (isFixed) {
+      html += '<input type="number" value="' + e.countTarget + '" min="1" style="width:60px" onchange="onEntryChange(' + i + ',\'countTarget\',this.value)"/>';
+    }
+    html += '</div>';
+
+    html += '<div class="entry-row">';
+    html += '<label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"' + (e.recycle?' checked':'') + ' onchange="onEntryChange(' + i + ',\'recycle\',this.checked)"/> Recycle</label>';
+    if (isFixed) {
+      html += '<label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"' + (e.forceQuota?' checked':'') + ' onchange="onEntryChange(' + i + ',\'forceQuota\',this.checked)"/> Force Quota</label>';
+    }
+    html += '</div>';
+
+    html += '<div class="entry-actions">';
+    if (i > 0) html += '<button class="btn btn-ghost btn-sm" onclick="moveEntry(' + i + ',-1)">↑</button>';
+    if (i < _strategyEntries.length - 1) html += '<button class="btn btn-ghost btn-sm" onclick="moveEntry(' + i + ',1)">↓</button>';
+    html += '<button class="btn btn-danger btn-sm" onclick="removeStrategyEntry(' + i + ')">× Remove</button>';
+    html += '</div>';
+
+    html += '</div>'; // strategy-entry
+  }
+
+  container.innerHTML = html;
+}
+
+// =============================================================================
+// HISTORY
+// =============================================================================
+var _lastHistLen = -1;
+function renderHistory(history) {
+  if (history.length === _lastHistLen) return;
+  _lastHistLen = history.length;
+  var container = document.getElementById('history-list');
+  if (!history.length) {
+    container.innerHTML = '<div class="empty-state">No matches recorded yet.</div>';
+    return;
+  }
+  var html = '';
+  for (var i = history.length - 1; i >= 0; i--) {
+    var h = history[i];
+    var enemy = h.enemy || {};
+    var d = h.pointsDelta || 0;
+    var dClass = d >= 0 ? 'pos' : 'neg';
+    var dStr = (d >= 0 ? '+' : '') + d;
+    var resClass = h.result === 'win' ? 'win' : h.result === 'loss' ? 'loss' : 'tie';
+    var resLabel = h.result === 'win' ? 'W' : h.result === 'loss' ? 'L' : 'T';
+    var ts = h.ts ? new Date(h.ts) : null;
+    var tsStr = ts ? (pad2(ts.getMonth()+1) + '/' + pad2(ts.getDate()) + ' ' + pad2(ts.getHours()) + ':' + pad2(ts.getMinutes())) : '';
+
+    html += '<div class="match-row">';
+    if (enemy.avatarUrl) html += '<img class="match-avatar" src="' + esc(enemy.avatarUrl) + '" onerror="this.style.display=\'none\'"/>';
+    html += '<div class="match-info">';
+    html += '<div class="match-enemy">' + esc(enemy.name || 'Unknown') + '</div>';
+    html += '<div class="match-meta">' + tsStr;
+    if (h.matchId) html += ' · <a href="#" onclick="Android.openMatch(\'' + esc(h.matchId) + '\');return false">#' + esc(h.matchId) + '</a>';
+    if (enemy.uid) html += ' · <a href="#" onclick="Android.openProfile(\'' + esc(enemy.uid) + '\');return false">Profile</a>';
+    html += '</div></div>';
+    html += '<div class="match-pts"><div class="pts-delta ' + dClass + '">' + dStr + '</div>';
+    html += '<div style="font-size:9px;color:var(--muted)">' + (h.pointsBefore||0) + '→' + (h.pointsAfter||0) + '</div></div>';
+    html += '<span class="result-badge ' + resClass + '">' + resLabel + '</span>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function clearHistory() {
+  if (window.Android) {
+    // Clear history via game WebView localStorage
+    try {
+      // We mirror a clear command
+      Android.setConfigValue('clear_history', '1');
+    } catch(e) {}
+  }
+  document.getElementById('history-list').innerHTML = '<div class="empty-state">History cleared.</div>';
+  _lastHistLen = 0;
+  showToast('History cleared');
+}
+
+// =============================================================================
+// ACTIONS
+// =============================================================================
+function toggleRunning() {
+  if (!window.Android) return;
+  var newRunning = !_isRunning;
+  if (newRunning && _state && !_state.connected) {
+    showToast('Not connected — login first');
+    return;
+  }
+  Android.setRunning(newRunning);
+  showToast(newRunning ? 'Bot started' : 'Bot stopped');
+}
+
+function doLogin() {
+  if (!window.Android) return;
+  if (_state && _state.connected) {
+    Android.logout();
+    showToast('Logged out');
+  } else {
+    Android.openLogin();
+  }
+}
+
+function doCopyLogs() {
+  if (window.Android) { Android.copyLogs(); showToast('Logs copied'); }
+}
+
+function doClearLogs() {
+  if (window.Android) { Android.clearLogs(); document.getElementById('log-container').innerHTML=''; _lastLogHash=''; showToast('Logs cleared'); }
+}
+
+// =============================================================================
+// TAB SWITCHING
+// =============================================================================
+function switchTab(name) {
+  _activeTab = name;
+  _strategyDirty = false;
+  document.querySelectorAll('.tab-btn').forEach(function(b, i) {
+    var tabs = ['battle','strategy','history','settings'];
+    b.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'panel-' + name);
+  });
+  if (name === 'strategy' && _state) {
+    var strat = (_state.strategy || {});
+    _strategyEntries = JSON.parse(JSON.stringify(strat.entries || []));
+    document.getElementById('strategy-toggle').checked = !!strat.enabled;
+    renderStrategyEntries();
+  }
+  if (name === 'history' && _state) renderHistory(_state.matchHistory || []);
+}
+
+// =============================================================================
+// TOAST
+// =============================================================================
+var _toastTimer = null;
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function() { el.classList.remove('show'); }, 2000);
+}
+
+// =============================================================================
+// UTILS
+// =============================================================================
+function setText(id, val) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// =============================================================================
+// INIT
+// =============================================================================
+document.addEventListener('DOMContentLoaded', function() {
+  startPoll();
+});
+</script>
+</body>
+</html>
+
