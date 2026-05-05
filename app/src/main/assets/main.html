@@ -46,9 +46,9 @@
   #btn-login.signed-in{background:#1a2e1a !important;color:#22c55e !important;border:1px solid rgba(34,197,94,0.45) !important;font-weight:700}
 
   /* ── STATS ── */
-  #stats-row{display:flex;gap:6px;padding:8px 12px;background:var(--bg);overflow-x:auto;flex-shrink:0;scrollbar-width:none}
-  #stats-row::-webkit-scrollbar{display:none}
-  .stat-pill{background:var(--bg2);border:1px solid var(--gold-border);border-radius:999px;padding:4px 10px;font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:5px}
+  #stats-wrap{display:flex;flex-direction:column;gap:4px;padding:8px 12px;background:var(--bg);flex-shrink:0}
+  #stats-row1,#stats-row2{display:flex;gap:6px}
+  .stat-pill{background:var(--bg2);border:1px solid var(--gold-border);border-radius:999px;padding:4px 10px;font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:5px;flex:1;justify-content:center}
   .stat-pill-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
   .stat-pill-val{color:var(--gold);font-weight:700}
 
@@ -155,12 +155,20 @@
     <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Sign In</button>
   </div>
 
-  <div id="stats-row">
-    <div class="stat-pill"><span class="stat-pill-label">Rank</span>  <span class="stat-pill-val" id="stat-rank">—</span></div>
-    <div class="stat-pill"><span class="stat-pill-label">Tier</span>  <span class="stat-pill-val" id="stat-tier">—</span></div>
-    <div class="stat-pill"><span class="stat-pill-label">Points</span><span class="stat-pill-val" id="stat-points">—</span></div>
-    <div class="stat-pill"><span class="stat-pill-label">Souls</span> <span class="stat-pill-val" id="stat-souls">—</span></div>
-    <div class="stat-pill"><span class="stat-pill-label">Tokens</span><span class="stat-pill-val" id="stat-tokens">—</span></div>
+  <div id="stats-wrap">
+    <div id="stats-row1">
+      <div class="stat-pill"><span class="stat-pill-label">Rank</span>  <span class="stat-pill-val" id="stat-rank">—</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">Tier</span>  <span class="stat-pill-val" id="stat-tier">—</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">Points</span><span class="stat-pill-val" id="stat-points">—</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">Souls</span> <span class="stat-pill-val" id="stat-souls">—</span></div>
+    </div>
+    <div id="stats-row2">
+      <div class="stat-pill"><span class="stat-pill-label">Tokens</span><span class="stat-pill-val" id="stat-tokens">—</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">Matches</span><span class="stat-pill-val" id="stat-matches">0</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">W</span>     <span class="stat-pill-val" id="stat-wins" style="color:var(--green)">0</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">L</span>     <span class="stat-pill-val" id="stat-losses" style="color:var(--red)">0</span></div>
+      <div class="stat-pill"><span class="stat-pill-label">WR%</span>   <span class="stat-pill-val" id="stat-wr">—</span></div>
+    </div>
   </div>
 
   <div id="hp-section" class="inactive">
@@ -243,6 +251,10 @@
             <span class="toggle-track"></span><span class="toggle-thumb"></span>
           </label>
         </div>
+        <div class="setting-row">
+          <div><div class="setting-title">Reset W/L</div><div class="setting-sub">Clear win/loss counters and match history</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="doResetWL()">Reset</button>
+        </div>
       </div>
 
       <div class="card">
@@ -280,6 +292,7 @@ var _pollTimer       = null;
 var _pollIntervalMs  = 2500;
 var _isRunning       = false;
 var _toastTimer      = null;
+var _stopStage       = 0;   // 0=idle, 1=first press (stop after match), 2=force stop
 
 // FIX (Problem 1): Log tracking — we only re-render when the log string changes.
 // We compare a hash to avoid unnecessary DOM thrashing on every tick.
@@ -372,9 +385,19 @@ function applyState(s) {
 
   // Start / Stop
   var ssBtn = document.getElementById('btn-startstop');
+  var wasRunning = _isRunning;
   _isRunning = !!s.running;
-  if (_isRunning) { ssBtn.textContent='Stop';  ssBtn.className='btn btn-danger'; }
-  else            { ssBtn.textContent='Start'; ssBtn.className='btn btn-gold';   }
+  // Reset stop stage when bot has actually stopped
+  if (wasRunning && !_isRunning) {
+    _stopStage = 0;
+    ssBtn.textContent = 'Start';
+    ssBtn.className   = 'btn btn-gold';
+  } else if (_isRunning && _stopStage === 0) {
+    ssBtn.textContent = 'Stop';
+    ssBtn.className   = 'btn btn-danger';
+  }
+  // If not running and stage somehow stuck, reset
+  if (!_isRunning) { _stopStage = 0; ssBtn.textContent='Start'; ssBtn.className='btn btn-gold'; }
 
   // Stats
   var st = s.stats || {};
@@ -383,6 +406,21 @@ function applyState(s) {
   setText('stat-points', st.points || '—');
   setText('stat-souls',  st.souls  || '—');
   setText('stat-tokens', st.tokens || '—');
+
+  // W/L from matchHistory
+  var hist = s.matchHistory || [];
+  var wins = 0, losses = 0;
+  for (var hi = 0; hi < hist.length; hi++) {
+    var r = hist[hi].result;
+    if (r === 'win') wins++;
+    else if (r === 'loss') losses++;
+  }
+  var total = hist.length;
+  var wr = total > 0 ? Math.round(wins / total * 100) + '%' : '—';
+  setText('stat-matches', total);
+  setText('stat-wins',    wins);
+  setText('stat-losses',  losses);
+  setText('stat-wr',      wr);
 
   // HP section
   var m = s.match || {};
@@ -541,18 +579,34 @@ function renderHistory(history){
   if(!history.length){c.innerHTML='<div class="empty-state">No matches recorded yet.</div>';return;}
   var h='';
   for(var i=history.length-1;i>=0;i--){
-    var m=history[i],en=m.enemy||{},d=m.pointsDelta||0;
+    var m=history[i],en=m.enemy||{};
+    // pointsDelta: use stored value or compute from before/after
+    var d=(m.pointsDelta!=null)?m.pointsDelta:((m.pointsAfter!=null&&m.pointsBefore!=null)?(m.pointsAfter-m.pointsBefore):0);
     var dc=d>=0?'pos':'neg',ds=(d>=0?'+':'')+d;
     var rc=m.result==='win'?'win':m.result==='loss'?'loss':'tie';
     var rl=m.result==='win'?'W':m.result==='loss'?'L':'T';
     var ts=m.ts?new Date(m.ts):null;
     var tsS=ts?(pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())):'';
+    // Normalize avatar URL to absolute
+    var avatarUrl=en.avatarUrl||'';
+    if(avatarUrl&&avatarUrl.indexOf('http')!==0)avatarUrl='https://demonicscans.org'+(avatarUrl.indexOf('/')===0?'':'/')+avatarUrl;
     h+='<div class="match-row">';
-    if(en.avatarUrl)h+='<img class="match-avatar" src="'+esc(en.avatarUrl)+'" onerror="this.style.display=\'none\'"/>';
-    h+='<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div><div class="match-meta">'+esc(tsS);
+    if(avatarUrl){
+      h+='<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
+    }else{
+      h+='<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
+    }
+    h+='<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
+    // Enemy class/level/party row
+    var meta=[];
+    if(en.role)meta.push(esc(en.role));
+    if(en.level)meta.push('Lv.'+esc(String(en.level)));
+    if(en.party)meta.push('\u2694 '+esc(en.party));
+    if(meta.length)h+='<div class="match-meta" style="color:var(--gold)">'+meta.join(' · ')+'</div>';
+    h+='<div class="match-meta">'+esc(tsS);
     if(m.matchId)h+=' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
     if(en.uid)h+=' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
-    h+='</div></div><div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'→'+(m.pointsAfter||0)+'</div></div>';
+    h+='</div></div><div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'\u2192'+(m.pointsAfter||0)+'</div></div>';
     h+='<span class="result-badge '+rc+'">'+rl+'</span></div>';
   }
   c.innerHTML=h;
@@ -563,16 +617,42 @@ function clearHistory(){
   document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>';
   showToast('History cleared');
 }
+function doResetWL(){
+  // Clear match history via Android (reuses clear_history key) and reset UI
+  if(window.Android){try{Android.setConfigValue('clear_history','1');}catch(e){}}
+  _lastHistLen=0;
+  setText('stat-matches','0');setText('stat-wins','0');setText('stat-losses','0');setText('stat-wr','—');
+  document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>';
+  showToast('W/L reset');
+}
 
 // ============================================================
 // BUTTON ACTIONS
 // ============================================================
 function toggleRunning(){
   if(!window.Android){showToast('Android bridge not ready');return;}
-  var nr=!_isRunning;
-  if(nr&&_state&&!_state.connected){showToast('Not connected — sign in first');return;}
-  try{Android.setRunning(nr);}catch(e){showToast('Error: '+e.message);return;}
-  showToast(nr?'Bot started':'Bot stopped');
+  if(!_isRunning){
+    // Start
+    if(_state&&!_state.connected){showToast('Not connected — sign in first');return;}
+    try{Android.setRunning(true);}catch(e){showToast('Error: '+e.message);return;}
+    _stopStage=0;
+    showToast('Bot started');
+  } else {
+    _stopStage++;
+    if(_stopStage===1){
+      // First press: graceful stop after current match
+      try{Android.setRunning(false);}catch(e){}
+      var ssBtn=document.getElementById('btn-startstop');
+      ssBtn.textContent='Force Stop';
+      ssBtn.className='btn btn-danger';
+      showToast('Stopping after current match — tap again to force stop');
+    } else {
+      // Second press: force stop now
+      try{Android.setRunning(false);}catch(e){}
+      _stopStage=0;
+      showToast('Force stopping now');
+    }
+  }
 }
 function doLogin(){
   if(!window.Android){showToast('Android bridge not ready');return;}
