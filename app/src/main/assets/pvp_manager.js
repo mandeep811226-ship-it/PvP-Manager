@@ -7,6 +7,7 @@
 // @match        https://demonicscans.org/*
 // @grant        none
 // ==/UserScript==
+
 (() => {
     'use strict';
 
@@ -3617,6 +3618,71 @@
         renderGUI();
         e.preventDefault();
     });
+
+    // =========================================================
+    // ANDROID BRIDGE — state exposure + remote control
+    // =========================================================
+    // Android's AndroidBridge.refreshLiveState() reads window.__pvpmState.
+    // Android's AndroidBridge.setRunning() calls window.__pvpmSetRunning().
+    // Neither existed before — all closure variables were invisible to Android.
+    // This block wires them up WITHOUT touching any other code.
+
+    /** Build the current state snapshot for Android to cache. */
+    function buildAndroidState() {
+        try {
+            return {
+                stats: {
+                    rank:   statRank   !== '-' ? statRank   : null,
+                    tier:   statTier   !== '-' ? statTier   : null,
+                    points: statPoints !== '-' ? statPoints : null,
+                    souls:  statSouls  !== '-' ? statSouls  : null,
+                    tokens: statTokens !== '-' ? statTokens : null
+                },
+                match: {
+                    active:          hpBarActive,
+                    allyName:        hpBarAllyName  || null,
+                    enemyName:       hpBarEnemyName || null,
+                    allyHp:          allyHp,
+                    allyHpMax:       allyHpMax,
+                    enemyHp:         enemyHp,
+                    enemyHpMax:      enemyHpMax,
+                    allyAvatarUrl:   hpBarAllyAvatarUrl  || null,
+                    enemyAvatarUrl:  hpBarEnemyAvatarUrl || null
+                },
+                skillList:    (typeof scrapeSkillList === 'function' ? scrapeSkillList() : skillList) || [],
+                matchHistory: matchHistory || []
+            };
+        } catch (e) {
+            return { stats: {}, match: { active: false }, skillList: [], matchHistory: [] };
+        }
+    }
+
+    /** Expose state to Android — called on every tick by AndroidBridge.refreshLiveState(). */
+    window.__pvpmState = buildAndroidState();
+
+    /** Remote control: Android.setRunning(true/false) calls this. */
+    window.__pvpmSetRunning = function(shouldRun) {
+        try {
+            if (shouldRun) {
+                if (!running) runAutomation();
+            } else {
+                // Graceful stop: request stop after current match (first press),
+                // then hard stop (second press) — matches the existing UI behaviour.
+                if (running && !stopAfterMatch) {
+                    stopAfterMatch = true;
+                } else if (running) {
+                    stopFlag = true;
+                }
+            }
+            window.__pvpmState = buildAndroidState();
+        } catch (e) {}
+    };
+
+    // Refresh __pvpmState on a fast interval so Android always reads fresh data.
+    // 800ms is well under Android's 1500ms poll — no extra network calls.
+    setInterval(function() {
+        try { window.__pvpmState = buildAndroidState(); } catch (e) {}
+    }, 800);
 
     } // end runFeature
 
