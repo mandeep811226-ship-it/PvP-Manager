@@ -209,39 +209,51 @@ public class MainActivity extends AppCompatActivity {
         bar.setBackgroundColor(Color.parseColor("#1a1025"));
         bar.setPadding(dp(12), dp(8), dp(12), dp(8));
 
-        TextView back = pillButton("BACK", Color.parseColor("#2d2040"));
-        back.setOnClickListener(v -> {
-            if (loginWebView != null && loginWebView.canGoBack()) loginWebView.goBack();
-            else closeLoginOverlay();
-        });
-        LinearLayout.LayoutParams backP = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        // BACK always returns to the app UI — no webview history navigation
+        TextView back = pillButton("← BACK TO APP", Color.parseColor("#2d2040"));
+        back.setOnClickListener(v -> closeLoginOverlay());
+        LinearLayout.LayoutParams backP = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         backP.setMargins(0, 0, dp(6), 0);
         bar.addView(back, backP);
 
-        TextView reload = pillButton("RELOAD", Color.parseColor("#1565C0"));
+        TextView reload = pillButton("⟳ RELOAD", Color.parseColor("#1565C0"));
         reload.setOnClickListener(v -> { if (loginWebView != null) loginWebView.reload(); });
-        LinearLayout.LayoutParams reloadP = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams reloadP = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.7f);
         reloadP.setMargins(0, 0, dp(6), 0);
         bar.addView(reload, reloadP);
 
         btnSaveConnect = pillButton("SAVE & CONNECT", Color.parseColor("#00897B"));
         btnSaveConnect.setOnClickListener(v -> saveConnect());
         bar.addView(btnSaveConnect,
-            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.4f));
+            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.3f));
 
         return bar;
     }
 
+    /** Called by the loginWebView's onPageFinished — resets the button if user navigates away. */
     private void updateSaveConnectLabel(String url) {
         if (btnSaveConnect == null) return;
-        boolean looksLoggedIn = url != null
-                && url.contains("demonicscans.org")
-                && !url.contains("signin") && !url.contains("login")
-                && !url.contains("register") && !url.equals("about:blank");
+        // Only reset to default if we are NOT already in the "Connected" state,
+        // so a page navigation after a successful connect doesn't wipe the green button.
+        if (bridge != null && bridge.isSessionVerified()) return;
+        setConnectButtonState(false);
+    }
+
+    private void setConnectButtonState(boolean connected) {
+        if (btnSaveConnect == null) return;
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(24));
-        bg.setColor(Color.parseColor(looksLoggedIn ? "#2E7D32" : "#00897B"));
-        btnSaveConnect.setText(looksLoggedIn ? "SAVE & CONNECT ✓" : "SAVE & CONNECT");
+        if (connected) {
+            bg.setColor(Color.parseColor("#2E7D32"));
+            btnSaveConnect.setText("✓ CONNECTED");
+            btnSaveConnect.setEnabled(false);   // prevent double-tap
+        } else {
+            bg.setColor(Color.parseColor("#00897B"));
+            btnSaveConnect.setText("SAVE & CONNECT");
+            btnSaveConnect.setEnabled(true);
+        }
         btnSaveConnect.setBackground(bg);
     }
 
@@ -257,8 +269,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // -------------------------------------------------------------------------
-    // FIX (Problem 3 + Problem 4): Save & Connect
-    // Uses direct gameWebView.reload() — no tick-based workaround.
+    // Save & Connect — stays on the overlay, updates button to ✓ CONNECTED.
+    // User taps "← BACK TO APP" manually when ready.
     // -------------------------------------------------------------------------
     public void saveConnect() {
         if (bridge == null || loginWebView == null) {
@@ -271,7 +283,7 @@ public class MainActivity extends AppCompatActivity {
 
         String currentUrl = loginWebView.getUrl();
 
-        // PRIMARY CHECK: URL-based (most reliable — works even with httpOnly cookies)
+        // PRIMARY CHECK: URL on the site and not on a login/auth page
         boolean urlOk = currentUrl != null
                 && currentUrl.contains("demonicscans.org")
                 && !currentUrl.contains("signin")
@@ -288,28 +300,39 @@ public class MainActivity extends AppCompatActivity {
                 + " cookieLen=" + (cookies == null ? 0 : cookies.length()));
 
         if (!urlOk && !hasCookies) {
+            // Not logged in — show failure on the button and a toast
             Toast.makeText(this,
                 "Please log in on the site first, then tap Save & Connect",
                 Toast.LENGTH_LONG).show();
+            // Flash the button red briefly so the user sees the failure
+            if (btnSaveConnect != null) {
+                GradientDrawable errBg = new GradientDrawable();
+                errBg.setCornerRadius(dp(24));
+                errBg.setColor(Color.parseColor("#B71C1C"));
+                btnSaveConnect.setBackground(errBg);
+                btnSaveConnect.setText("✗ NOT LOGGED IN");
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> setConnectButtonState(false), 2500);
+            }
             return;
         }
 
-        // Close overlay immediately — user gets instant feedback
-        loginContainer.setVisibility(View.INVISIBLE);
-        loginWebView.loadUrl("about:blank");
-
-        // Mark connected before the reload so UI shows "Connected" straight away
+        // ── SUCCESS ─────────────────────────────────────────────────────────
+        // 1. Mark session as connected (synchronous commit)
         bridge.setConnected(true);
-        bridge.appendLog("system", "Session saved — reloading game WebView");
+        bridge.appendLog("system", "Session saved ✓ — tap '← BACK TO APP' to return");
 
-        // FIX (Problem 3): Direct reload — no tick counter or indirect mechanism
+        // 2. Update the button to show success — overlay stays open
+        setConnectButtonState(true);
+
+        // 3. Reload the hidden gameWebView in the background
         if (gameWebView != null) {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (gameWebView != null) gameWebView.reload();
-            }, 500);
+            }, 400);
         }
 
-        // Refresh UI stats after the game WebView has had time to settle
+        // 4. Refresh the app UI in the background so it's ready when user returns
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
@@ -457,9 +480,10 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        // If the login overlay is open, the hardware back button always returns to the app UI
+        // (same behaviour as the "← BACK TO APP" button in the nav bar)
         if (loginContainer != null && loginContainer.getVisibility() == View.VISIBLE) {
-            if (loginWebView != null && loginWebView.canGoBack()) loginWebView.goBack();
-            else closeLoginOverlay();
+            closeLoginOverlay();
             return;
         }
         super.onBackPressed();
