@@ -204,21 +204,25 @@ public class AndroidBridge {
     public void refreshLiveState() {
         mainHandler.post(() -> {
             if (gameWebView == null) return;
+            // FIX: Return the raw JS object — evaluateJavascript serialises it
+            // to valid JSON once. JSON.stringify() in JS caused double-encoding.
+            // Guard: only proceed when the bridge hook is installed and is a real object.
             gameWebView.evaluateJavascript(
-                "(function(){ return JSON.stringify(window.__pvpmState || null); })()",
+                "(function(){" +
+                "  var s = window.__pvpmState;" +
+                "  if (!s || typeof s !== 'object') return null;" +
+                "  try { return JSON.parse(JSON.stringify(s)); } catch(e) { return null; }" +
+                "})()",
                 value -> {
                     if (value == null || value.equals("null")) return;
+                    // value is already valid JSON — validate before saving.
                     try {
-                        String raw = value;
-                        if (raw.startsWith("\"") && raw.endsWith("\"")) {
-                            raw = raw.substring(1, raw.length() - 1)
-                                     .replace("\\\"", "\"")
-                                     .replace("\\\\", "\\")
-                                     .replace("\\n", "\n");
-                        }
-                        prefs.edit().putString("cached_live_state", raw).apply();
+                        new JSONObject(value);
+                        prefs.edit().putString("cached_live_state", value).apply();
+                    } catch (JSONException e) {
+                        Log.e("PvPManager", "refreshLiveState: invalid JSON: " + e.getMessage());
                     } catch (Exception e) {
-                        Log.e("PvPManager", "refreshLiveState parse: " + e.getMessage());
+                        Log.e("PvPManager", "refreshLiveState: " + e.getMessage());
                     }
                 });
         });
