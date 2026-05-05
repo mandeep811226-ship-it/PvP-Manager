@@ -14,31 +14,47 @@
     --radius:10px;--font:system-ui,-apple-system,'Segoe UI',sans-serif;
   }
   html,body{height:100%;width:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;overflow:hidden}
-  #app{display:flex;flex-direction:column;height:100vh;max-width:100vw;overflow:hidden}
+  #app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
 
-  /* TOP BAR */
-  #topbar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--gold-border);flex-shrink:0;flex-wrap:wrap}
+  /* ── TOP BAR ── */
+  /* FIX (Problem 2): Removed cookie-dump and settings buttons from top bar.
+     Login button is now the dominant CTA — full-width-ish, gold coloured. */
+  #topbar{
+    display:flex;align-items:center;gap:8px;
+    padding:10px 12px;
+    background:var(--bg2);border-bottom:1px solid var(--gold-border);
+    flex-shrink:0;
+  }
   #conn-dot{width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0}
   #conn-dot.on{background:var(--green)}
-  #conn-label{font-size:12px;color:var(--muted);margin-right:4px}
+  #conn-label{font-size:12px;color:var(--muted)}
   .spacer{flex:1}
-  .btn{border:none;border-radius:999px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:opacity 0.15s}
+  .btn{border:none;border-radius:999px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:opacity .15s}
   .btn:active{opacity:.75}
-  .btn-gold{background:var(--gold);color:#0a0612}
-  .btn-danger{background:var(--red);color:#fff}
-  .btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--gold-border)}
-  .btn-sm{padding:5px 10px;font-size:11px}
+  .btn-gold   {background:var(--gold);color:#0a0612}
+  .btn-danger {background:var(--red);color:#fff}
+  .btn-ghost  {background:var(--bg3);color:var(--text);border:1px solid var(--gold-border)}
+  .btn-sm     {padding:5px 10px;font-size:11px}
+  /* Login button — dominant CTA */
+  #btn-login{
+    flex:1;           /* takes all remaining space */
+    max-width:160px;
+    padding:9px 18px;
+    font-size:13px;
+    font-weight:700;
+  }
+  #btn-login.connected{background:var(--bg3);color:var(--red);border:1px solid rgba(239,68,68,0.4)}
 
-  /* STATS ROW */
+  /* ── STATS ── */
   #stats-row{display:flex;gap:6px;padding:8px 12px;background:var(--bg);overflow-x:auto;flex-shrink:0;scrollbar-width:none}
   #stats-row::-webkit-scrollbar{display:none}
   .stat-pill{background:var(--bg2);border:1px solid var(--gold-border);border-radius:999px;padding:4px 10px;font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:5px}
   .stat-pill-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
   .stat-pill-val{color:var(--gold);font-weight:700}
 
-  /* HP SECTION */
+  /* ── HP SECTION ── */
   #hp-section{padding:10px 12px;background:var(--bg2);border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
-  #hp-section.inactive{opacity:0.4;pointer-events:none}
+  #hp-section.inactive{opacity:.4;pointer-events:none}
   .hp-combatants{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px}
   .hp-fighter{display:flex;align-items:center;gap:6px;min-width:0}
   .hp-fighter.enemy{flex-direction:row-reverse}
@@ -47,20 +63,25 @@
   .hp-dual-bar{display:flex;height:14px;background:var(--bg);border-radius:999px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)}
   .hp-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px}
 
-  /* TABS */
+  /* ── TABS ── */
   #tab-bar{display:flex;background:var(--bg2);border-bottom:1px solid var(--gold-border);flex-shrink:0}
   .tab-btn{flex:1;border:none;background:transparent;color:var(--muted);font-size:12px;font-weight:600;padding:10px 4px;cursor:pointer;font-family:var(--font);border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
   .tab-btn.active{color:var(--gold);border-bottom-color:var(--gold)}
 
-  /* TAB PANELS */
+  /* ── PANELS ── */
   #tab-panels{flex:1;overflow:hidden;position:relative}
   .tab-panel{position:absolute;inset:0;overflow-y:auto;padding:12px;display:none;flex-direction:column;gap:10px}
   .tab-panel.active{display:flex}
 
-  /* BATTLE LOG */
-  #log-container{flex:1;background:var(--bg2);border-radius:var(--radius);overflow-y:auto;padding:8px 10px;min-height:80px;font-size:12px;font-family:'Courier New',monospace;border:1px solid rgba(255,255,255,0.06)}
+  /* ── LOG ── */
+  #log-container{
+    flex:1;background:var(--bg2);border-radius:var(--radius);
+    overflow-y:auto;padding:8px 10px;min-height:80px;
+    font-size:12px;font-family:'Courier New',monospace;
+    border:1px solid rgba(255,255,255,0.06);
+  }
   .log-entry{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);line-height:1.4}
-  .log-ts{color:var(--muted);flex-shrink:0;font-size:10px;margin-top:1px}
+  .log-ts   {color:var(--muted);flex-shrink:0;font-size:10px;margin-top:1px}
   .log-badge{flex-shrink:0;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;text-transform:uppercase;align-self:flex-start;margin-top:1px}
   .log-badge.info   {background:#333;color:#ccc}
   .log-badge.debug  {background:rgba(96,165,250,0.18);color:#60a5fa}
@@ -71,7 +92,7 @@
   .log-badge.loss   {background:rgba(239,83,80,0.2);color:#ef5350}
   .log-msg{color:var(--text);word-break:break-word;flex:1}
 
-  /* STRATEGY */
+  /* ── STRATEGY ── */
   .card{background:var(--bg2);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.07);padding:12px}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .toggle-label{font-size:13px;font-weight:600}
@@ -79,18 +100,17 @@
   .toggle{position:relative;width:44px;height:24px;flex-shrink:0}
   .toggle input{opacity:0;width:0;height:0}
   .toggle-track{position:absolute;inset:0;background:#444;border-radius:999px;cursor:pointer;transition:background .2s}
-  .toggle input:checked ~ .toggle-track{background:var(--gold)}
+  .toggle input:checked~.toggle-track{background:var(--gold)}
   .toggle-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform .2s;pointer-events:none}
-  .toggle input:checked ~ .toggle-track ~ .toggle-thumb{transform:translateX(20px)}
+  .toggle input:checked~.toggle-track~.toggle-thumb{transform:translateX(20px)}
   .strategy-entry{background:var(--bg3);border-radius:var(--radius);border:1px solid var(--gold-border);padding:10px;display:flex;flex-direction:column;gap:8px}
   .entry-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .entry-label{font-size:11px;color:var(--muted);white-space:nowrap}
-  select,input[type=number],input[type=text]{background:var(--bg);border:1px solid var(--gold-border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--font);outline:none}
+  select,input[type=number]{background:var(--bg);border:1px solid var(--gold-border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--font);outline:none}
   select:focus,input:focus{border-color:var(--gold)}
   .entry-actions{display:flex;gap:6px;justify-content:flex-end}
-  .entry-actions .btn{padding:4px 8px;font-size:11px}
 
-  /* HISTORY */
+  /* ── HISTORY ── */
   .match-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
   .match-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg3)}
   .match-info{flex:1;min-width:0}
@@ -98,26 +118,25 @@
   .match-meta{font-size:10px;color:var(--muted)}
   .match-pts{text-align:right;flex-shrink:0;font-size:11px}
   .pts-delta{font-weight:700}
-  .pts-delta.pos{color:#66bb6a}
-  .pts-delta.neg{color:#ef5350}
+  .pts-delta.pos{color:#66bb6a}.pts-delta.neg{color:#ef5350}
   .result-badge{border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;flex-shrink:0;align-self:center}
-  .result-badge.win {background:rgba(102,187,106,0.2);color:#66bb6a}
+  .result-badge.win{background:rgba(102,187,106,0.2);color:#66bb6a}
   .result-badge.loss{background:rgba(239,83,80,0.2);color:#ef5350}
-  .result-badge.tie {background:rgba(96,165,250,0.2);color:#60a5fa}
+  .result-badge.tie{background:rgba(96,165,250,0.2);color:#60a5fa}
 
-  /* SETTINGS */
+  /* ── SETTINGS ── */
   .setting-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);gap:12px}
+  .setting-row:last-child{border-bottom:none}
   .setting-title{font-size:13px;font-weight:600}
   .setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
+  .settings-section-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:4px 0 6px}
 
-  /* TOAST */
+  /* ── TOAST ── */
   #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg3);border:1px solid var(--gold-border);color:var(--text);padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:999;pointer-events:none;white-space:nowrap}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-  /* MISC */
   .empty-state{text-align:center;padding:30px 16px;color:var(--muted);font-size:13px}
   a{color:var(--gold);text-decoration:none}
-  a:active{opacity:.75}
   ::-webkit-scrollbar{width:4px;height:4px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:2px}
@@ -126,14 +145,14 @@
 <body>
 <div id="app">
 
+  <!-- TOP BAR: only connection status, start/stop, and the prominent login button -->
   <div id="topbar">
     <span id="conn-dot"></span>
     <span id="conn-label">Disconnected</span>
     <div class="spacer"></div>
-    <button class="btn btn-gold"  id="btn-startstop" onclick="toggleRunning()">Start</button>
-    <button class="btn btn-ghost" id="btn-login"     onclick="doLogin()">Login</button>
-    <button class="btn btn-ghost btn-sm" onclick="doDumpCookies()" title="Dump cookies">🍪</button>
-    <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()" title="Battery / Notif settings">⚙</button>
+    <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
+    <!-- FIX (Problem 2): Login is the dominant CTA — full-width, gold when disconnected -->
+    <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Login</button>
   </div>
 
   <div id="stats-row">
@@ -172,7 +191,13 @@
 
   <div id="tab-panels">
 
+    <!-- BATTLE -->
     <div class="tab-panel active" id="panel-battle">
+      <!--
+        FIX (Problem 1): Log container renders oldest-to-newest (stable order).
+        New entries append to bottom and the container auto-scrolls down.
+        Logs are never auto-cleared — only via the "Clear Logs" button.
+      -->
       <div id="log-container"><div class="empty-state">No logs yet.</div></div>
       <div style="display:flex;gap:8px;flex-shrink:0;padding-top:4px">
         <button class="btn btn-ghost btn-sm" onclick="doCopyLogs()">Copy Logs</button>
@@ -180,6 +205,7 @@
       </div>
     </div>
 
+    <!-- STRATEGY -->
     <div class="tab-panel" id="panel-strategy">
       <div class="card">
         <div class="toggle-row">
@@ -194,67 +220,87 @@
       <button class="btn btn-ghost" onclick="addStrategyEntry()" style="align-self:flex-start">+ Add Entry</button>
     </div>
 
+    <!-- HISTORY -->
     <div class="tab-panel" id="panel-history">
       <div id="history-list"></div>
       <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="align-self:flex-start;margin-top:4px">Clear History</button>
     </div>
 
+    <!-- SETTINGS -->
+    <!-- FIX (Problem 2): Cookie dump + battery optimisation moved here from top bar -->
     <div class="tab-panel" id="panel-settings">
       <div class="card">
+        <div class="settings-section-label">Bot</div>
         <div class="setting-row">
           <div><div class="setting-title">Poll Interval (ms)</div><div class="setting-sub">How often to check battle state</div></div>
           <input type="number" id="poll-interval-input" value="1500" min="500" max="10000"
             style="width:80px" onchange="onPollIntervalChange(this.value)"/>
         </div>
-        <div class="setting-row" style="border-bottom:none">
-          <div><div class="setting-title">Debug Logs</div><div class="setting-sub">Show verbose output in Battle tab</div></div>
+        <div class="setting-row">
+          <div><div class="setting-title">Debug Logs</div><div class="setting-sub">Verbose output in Battle tab</div></div>
           <label class="toggle">
             <input type="checkbox" id="debug-toggle" onchange="onDebugToggleChange(this.checked)"/>
             <span class="toggle-track"></span><span class="toggle-thumb"></span>
           </label>
         </div>
       </div>
+
+      <div class="card">
+        <div class="settings-section-label">Diagnostics</div>
+        <div class="setting-row">
+          <div><div class="setting-title">Cookie Dump</div><div class="setting-sub">Print current cookies to log</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="doDumpCookies()">Dump</button>
+        </div>
+        <div class="setting-row">
+          <div><div class="setting-title">Battery Optimisation</div><div class="setting-sub">Disable to keep bot running in background</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="doRequestBatteryOpt()">Configure</button>
+        </div>
+        <div class="setting-row">
+          <div><div class="setting-title">All App Settings</div><div class="setting-sub">Open Android settings for this app</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="Android.openSettings()">Open</button>
+        </div>
+      </div>
     </div>
 
-  </div>
-</div>
+  </div><!-- /tab-panels -->
+</div><!-- /app -->
 
 <div id="toast"></div>
 
 <script>
-// =============================================================================
+// ============================================================
 // STATE
-// =============================================================================
-var _state         = null;
-var _activeTab     = 'battle';
+// ============================================================
+var _state           = null;
+var _activeTab       = 'battle';
 var _strategyEntries = [];
-var _strategyDirty = false;
-var _skillList     = [];
-var _pollTimer     = null;
-var _pollIntervalMs = 2500;
-var _isRunning     = false;
-var _lastLogHash   = '';
-var _lastHistLen   = -1;
-var _toastTimer    = null;
+var _strategyDirty   = false;
+var _skillList       = [];
+var _pollTimer       = null;
+var _pollIntervalMs  = 2500;
+var _isRunning       = false;
+var _toastTimer      = null;
 
-// ---------- Debug toggle local tracking ----------
-// We track the debug toggle value LOCALLY after the first load.
-// The remote state (SharedPreferences) is only used to initialise it.
-// After that, user interaction is the sole source of truth — we NEVER
-// let the poll loop overwrite it. This eliminates the toggle-flip race.
-var _debugToggleReady = false; // true after first successful state load
-var _debugToggleValue = false; // our local authoritative value
+// FIX (Problem 1): Log tracking — we only re-render when the log string changes.
+// We compare a hash to avoid unnecessary DOM thrashing on every tick.
+var _lastLogHash  = '';
+var _lastHistLen  = -1;
 
-// ---------- Poll interval debounce ----------
-// Don't update the poll interval input while the user is editing it
+// FIX: Debug toggle — local value is authoritative after first init.
+// Poll loop may only SET it once (on first load). After that, only user
+// interaction via onDebugToggleChange() may change it.
+var _debugToggleReady = false;
+var _debugToggleValue = false;
+
+// Poll interval — prevent remote from overwriting while user is editing
 var _pollIntervalTouched = false;
 
-// =============================================================================
-// SETTINGS CHANGE HANDLERS  (user-initiated — mark as authoritative)
-// =============================================================================
+// ============================================================
+// SETTINGS CHANGE HANDLERS  (user-initiated — authoritative)
+// ============================================================
 function onDebugToggleChange(checked) {
-  _debugToggleValue = checked;          // update local truth
-  _debugToggleReady = true;             // ensure it's locked in
+  _debugToggleValue = checked;
+  _debugToggleReady = true;
   if (window.Android) {
     try { Android.setConfigBool('debug_logs', checked); } catch(e) {}
   }
@@ -269,23 +315,18 @@ function onPollIntervalChange(val) {
     try { Android.setConfigValue('poll_interval_ms', String(ms)); } catch(e) {}
   }
   restartPoll(ms);
-  // Allow remote to update after 5 s in case the user switches tabs and back
   setTimeout(function() { _pollIntervalTouched = false; }, 5000);
 }
 
-// =============================================================================
+// ============================================================
 // POLL LOOP
-// =============================================================================
+// ============================================================
 function restartPoll(ms) {
   if (_pollTimer) clearInterval(_pollTimer);
   _pollIntervalMs = ms || _pollIntervalMs;
   _pollTimer = setInterval(tick, _pollIntervalMs);
 }
-
-function startPoll() {
-  restartPoll(_pollIntervalMs);
-  tick(); // immediate first tick
-}
+function startPoll() { restartPoll(_pollIntervalMs); tick(); }
 
 function tick() {
   if (!window.Android) return;
@@ -297,30 +338,37 @@ function tick() {
   applyState(s);
 }
 
-window.__pvpmUiRefresh = tick; // native code calls this after state changes
+window.__pvpmUiRefresh = tick;
 
-// =============================================================================
+// ============================================================
 // STATE → DOM
-// =============================================================================
+// ============================================================
 function applyState(s) {
   _state = s;
 
   // Connection indicator
   var dot   = document.getElementById('conn-dot');
   var label = document.getElementById('conn-label');
-  if (s.connected) { dot.className = 'on'; label.textContent = 'Connected'; }
-  else             { dot.className = '';   label.textContent = 'Disconnected'; }
+  var loginBtn = document.getElementById('btn-login');
+  if (s.connected) {
+    dot.className   = 'on';
+    label.textContent = 'Connected';
+    loginBtn.textContent = 'Logout';
+    loginBtn.className   = 'btn btn-ghost connected';
+  } else {
+    dot.className   = '';
+    label.textContent = 'Disconnected';
+    loginBtn.textContent = 'Login';
+    loginBtn.className   = 'btn btn-gold';
+  }
 
-  // Login / Logout button
-  document.getElementById('btn-login').textContent = s.connected ? 'Logout' : 'Login';
-
-  // Start / Stop button
+  // Start / Stop
   var ssBtn = document.getElementById('btn-startstop');
   _isRunning = !!s.running;
-  if (_isRunning) { ssBtn.textContent = 'Stop';  ssBtn.className = 'btn btn-danger'; }
-  else            { ssBtn.textContent = 'Start'; ssBtn.className = 'btn btn-gold';   }
+  if (_isRunning) { ssBtn.textContent='Stop';  ssBtn.className='btn btn-danger'; }
+  else            { ssBtn.textContent='Start'; ssBtn.className='btn btn-gold';   }
 
-  // Stats pills
+  // Stats
   var st = s.stats || {};
   setText('stat-rank',   st.rank   || '—');
   setText('stat-tier',   st.tier   || '—');
@@ -330,29 +378,29 @@ function applyState(s) {
 
   // HP section
   var m = s.match || {};
-  var hpSection = document.getElementById('hp-section');
+  var hpSec = document.getElementById('hp-section');
   if (m.active) {
-    hpSection.classList.remove('inactive');
+    hpSec.classList.remove('inactive');
     setText('ally-name',  m.allyName  || 'You');
     setText('enemy-name', m.enemyName || 'Enemy');
-    var allyPct  = m.allyHpMax  > 0 ? Math.round(m.allyHp  / m.allyHpMax  * 100) : 0;
-    var enemyPct = m.enemyHpMax > 0 ? Math.round(m.enemyHp / m.enemyHpMax * 100) : 0;
-    document.getElementById('hp-ally-fill').style.width  = allyPct  + '%';
-    document.getElementById('hp-enemy-fill').style.width = enemyPct + '%';
-    setText('ally-hp-pct',   allyPct  + '%');
-    setText('enemy-hp-pct',  enemyPct + '%');
-    setText('ally-hp-label',  (m.allyHp  || 0) + ' / ' + (m.allyHpMax  || 0));
-    setText('enemy-hp-label', (m.enemyHp || 0) + ' / ' + (m.enemyHpMax || 0));
+    var ap = m.allyHpMax  > 0 ? Math.round(m.allyHp  / m.allyHpMax  * 100) : 0;
+    var ep = m.enemyHpMax > 0 ? Math.round(m.enemyHp / m.enemyHpMax * 100) : 0;
+    document.getElementById('hp-ally-fill').style.width  = ap + '%';
+    document.getElementById('hp-enemy-fill').style.width = ep + '%';
+    setText('ally-hp-pct',   ap + '%');
+    setText('enemy-hp-pct',  ep + '%');
+    setText('ally-hp-label',  (m.allyHp||0)  + ' / ' + (m.allyHpMax||0));
+    setText('enemy-hp-label', (m.enemyHp||0) + ' / ' + (m.enemyHpMax||0));
     if (m.allyAvatarUrl)  document.getElementById('ally-avatar').src  = m.allyAvatarUrl;
     if (m.enemyAvatarUrl) document.getElementById('enemy-avatar').src = m.enemyAvatarUrl;
   } else {
-    hpSection.classList.add('inactive');
+    hpSec.classList.add('inactive');
   }
 
   if (s.skillList && s.skillList.length) _skillList = s.skillList;
 
-  if (_activeTab === 'battle')   renderLogs(s.logs || '');
-  if (_activeTab === 'history')  renderHistory(s.matchHistory || []);
+  if (_activeTab === 'battle')  renderLogs(s.logs || '');
+  if (_activeTab === 'history') renderHistory(s.matchHistory || []);
   if (_activeTab === 'strategy' && !_strategyDirty) {
     var strat = s.strategy || {};
     document.getElementById('strategy-toggle').checked = !!strat.enabled;
@@ -363,55 +411,71 @@ function applyState(s) {
   }
   if (_activeTab === 'settings') {
     var cfg = s.config || {};
-
-    // DEBUG TOGGLE:
-    // On the very first tick, read the persisted value and lock it in locally.
-    // On every subsequent tick, ONLY apply the remote value if it matches what
-    // we already have locally — i.e. we never let a stale remote value flip the
-    // toggle back after the user has interacted with it.
+    // Init debug toggle from prefs on first load only
     if (!_debugToggleReady) {
       _debugToggleValue = !!cfg.debugLogs;
       _debugToggleReady = true;
       document.getElementById('debug-toggle').checked = _debugToggleValue;
     }
-    // After init, don't touch the checkbox at all — user owns it.
-
-    // POLL INTERVAL: only update input when user isn't editing it
+    // Poll interval — only sync from remote if user isn't editing
     if (!_pollIntervalTouched) {
       var pi = document.getElementById('poll-interval-input');
       if (document.activeElement !== pi) {
-        var remoteMs = cfg.pollIntervalMs || 1500;
-        if (pi.value != remoteMs) pi.value = remoteMs;
-        if (remoteMs !== _pollIntervalMs) restartPoll(remoteMs);
+        var rms = cfg.pollIntervalMs || 1500;
+        if (pi.value != rms) pi.value = rms;
+        if (rms !== _pollIntervalMs) restartPoll(rms);
       }
     }
   }
 }
 
-// =============================================================================
-// LOGS
-// =============================================================================
+// ============================================================
+// FIX (Problem 1): Log rendering
+// - Oldest-to-newest order (stable — no reordering on new entries)
+// - Auto-scrolls to bottom so latest entry is always visible
+// - Only re-renders DOM when content actually changes
+// - Never auto-clears; user clears via the button
+// ============================================================
 function renderLogs(raw) {
-  if (raw === _lastLogHash) return;
+  if (raw === _lastLogHash) return;  // no change — skip DOM update
+  var wasAtBottom = isLogScrolledToBottom();
   _lastLogHash = raw;
+
   var container = document.getElementById('log-container');
   var lines = (raw || '').trim().split('\n').filter(Boolean);
-  if (!lines.length) { container.innerHTML = '<div class="empty-state">No logs yet.</div>'; return; }
+  if (!lines.length) {
+    container.innerHTML = '<div class="empty-state">No logs yet.</div>';
+    return;
+  }
+
   var html = '';
-  var start = Math.max(0, lines.length - 300);
-  for (var i = lines.length - 1; i >= start; i--) {
+  // Oldest-first: iterate forward so new entries append at the bottom
+  var start = Math.max(0, lines.length - 500); // show latest 500 max
+  for (var i = start; i < lines.length; i++) {
     var parts = lines[i].split('|');
     if (parts.length < 3) continue;
     var ts   = parseInt(parts[0], 10);
     var type = parts[1];
     var msg  = parts.slice(2).join('|');
     html += '<div class="log-entry">' +
-      '<span class="log-ts">' + esc(tsToHMS(ts)) + '</span>' +
-      '<span class="log-badge ' + esc(type) + '">' + esc(type) + '</span>' +
-      '<span class="log-msg">' + esc(msg) + '</span>' +
+      '<span class="log-ts">'                       + esc(tsToHMS(ts)) + '</span>' +
+      '<span class="log-badge ' + esc(type) + '">'  + esc(type)        + '</span>' +
+      '<span class="log-msg">'                       + esc(msg)         + '</span>' +
       '</div>';
   }
   container.innerHTML = html || '<div class="empty-state">No logs yet.</div>';
+
+  // Auto-scroll to bottom so the latest entry is visible,
+  // but only if the user was already at the bottom (respect manual scroll-up)
+  if (wasAtBottom) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function isLogScrolledToBottom() {
+  var c = document.getElementById('log-container');
+  if (!c) return true;
+  return c.scrollHeight - c.scrollTop - c.clientHeight < 40;
 }
 
 function tsToHMS(ms) {
@@ -420,170 +484,145 @@ function tsToHMS(ms) {
 }
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
-// =============================================================================
+// ============================================================
 // STRATEGY
-// =============================================================================
-function onStrategyToggle(val) {
-  if (window.Android) Android.setStrategyEnabled(val);
-  showToast(val ? 'Strategy ON' : 'Strategy OFF');
-}
-function addStrategyEntry() {
-  _strategyEntries.push({ skillId:'0', condition:{type:'always',op:'>=',value:0}, countTarget:'forever', recycle:false, forceQuota:false });
-  _strategyDirty = true; renderStrategyEntries(); saveStrategy();
-}
-function removeStrategyEntry(idx) { _strategyEntries.splice(idx,1); _strategyDirty=true; renderStrategyEntries(); saveStrategy(); }
-function moveEntry(idx, dir) {
-  var ni = idx+dir;
-  if (ni<0||ni>=_strategyEntries.length) return;
-  var t=_strategyEntries[idx]; _strategyEntries[idx]=_strategyEntries[ni]; _strategyEntries[ni]=t;
-  _strategyDirty=true; renderStrategyEntries(); saveStrategy();
-}
-function saveStrategy() { if (window.Android) Android.saveStrategy(JSON.stringify(_strategyEntries)); }
-function onEntryChange(idx, field, value) {
-  var e=_strategyEntries[idx]; if(!e) return;
-  if (field==='skillId')    e.skillId=value;
-  else if(field==='condType') e.condition.type=value;
-  else if(field==='condOp')   e.condition.op=value;
-  else if(field==='condVal')  e.condition.value=parseFloat(value)||0;
-  else if(field==='countTarget') { if(value==='forever'||value==='until_fail') e.countTarget=value; else e.countTarget=parseInt(value,10)||1; }
-  else if(field==='recycle')    e.recycle=value;
-  else if(field==='forceQuota') e.forceQuota=value;
-  _strategyDirty=true; renderStrategyEntries(); saveStrategy();
-}
-function renderStrategyEntries() {
-  var container=document.getElementById('strategy-entries');
-  if(!_strategyEntries.length){ container.innerHTML='<div class="empty-state">No strategy entries yet.<br>Add one below.</div>'; return; }
-  var COND_TYPES=[['always','Always'],['target_hp_pct','Target HP%'],['self_hp_pct','My HP%'],['tokens','Tokens'],['atk_vs_def','ATK vs DEF'],['def_vs_atk','DEF vs ATK'],['preceding_failed','When all preceding fail']];
+// ============================================================
+function onStrategyToggle(v){if(window.Android)Android.setStrategyEnabled(v);showToast(v?'Strategy ON':'Strategy OFF');}
+function addStrategyEntry(){_strategyEntries.push({skillId:'0',condition:{type:'always',op:'>=',value:0},countTarget:'forever',recycle:false,forceQuota:false});_strategyDirty=true;renderStrategyEntries();saveStrategy();}
+function removeStrategyEntry(i){_strategyEntries.splice(i,1);_strategyDirty=true;renderStrategyEntries();saveStrategy();}
+function moveEntry(i,d){var n=i+d;if(n<0||n>=_strategyEntries.length)return;var t=_strategyEntries[i];_strategyEntries[i]=_strategyEntries[n];_strategyEntries[n]=t;_strategyDirty=true;renderStrategyEntries();saveStrategy();}
+function saveStrategy(){if(window.Android)Android.saveStrategy(JSON.stringify(_strategyEntries));}
+function onEntryChange(i,f,v){var e=_strategyEntries[i];if(!e)return;if(f==='skillId')e.skillId=v;else if(f==='condType')e.condition.type=v;else if(f==='condOp')e.condition.op=v;else if(f==='condVal')e.condition.value=parseFloat(v)||0;else if(f==='countTarget'){if(v==='forever'||v==='until_fail')e.countTarget=v;else e.countTarget=parseInt(v,10)||1;}else if(f==='recycle')e.recycle=v;else if(f==='forceQuota')e.forceQuota=v;_strategyDirty=true;renderStrategyEntries();saveStrategy();}
+function onCountSelectChange(i,v){var e=_strategyEntries[i];if(!e)return;if(v==='forever'||v==='until_fail')e.countTarget=v;else e.countTarget=(typeof e.countTarget==='number')?e.countTarget:1;_strategyDirty=true;renderStrategyEntries();saveStrategy();}
+function renderStrategyEntries(){
+  var c=document.getElementById('strategy-entries');
+  if(!_strategyEntries.length){c.innerHTML='<div class="empty-state">No strategy entries yet.<br>Add one below.</div>';return;}
+  var CT=[['always','Always'],['target_hp_pct','Target HP%'],['self_hp_pct','My HP%'],['tokens','Tokens'],['atk_vs_def','ATK vs DEF'],['def_vs_atk','DEF vs ATK'],['preceding_failed','When all preceding fail']];
   var OPS=['>=','<=','>','<','=='];
-  var html='';
+  var h='';
   for(var i=0;i<_strategyEntries.length;i++){
-    var e=_strategyEntries[i]; var cond=e.condition||{}; var isNum=(cond.type!=='always'&&cond.type!=='preceding_failed'); var isFix=(typeof e.countTarget==='number');
-    var sOpts='<option value="0"'+(e.skillId==='0'?' selected':'')+'>Slash (Basic)</option>';
-    for(var j=0;j<_skillList.length;j++){var sk=_skillList[j];sOpts+='<option value="'+esc(sk.id)+'"'+(e.skillId===sk.id?' selected':'')+'>'+esc(sk.label)+'</option>';}
-    var cOpts=''; for(var k=0;k<COND_TYPES.length;k++){cOpts+='<option value="'+COND_TYPES[k][0]+'"'+(cond.type===COND_TYPES[k][0]?' selected':'')+'>'+COND_TYPES[k][1]+'</option>';}
-    var oOpts=''; for(var o=0;o<OPS.length;o++){oOpts+='<option value="'+OPS[o]+'"'+(cond.op===OPS[o]?' selected':'')+'>'+OPS[o]+'</option>';}
-    var ctKey=(typeof e.countTarget==='number')?'num':e.countTarget;
-    var ctOpts='<option value="forever"'+(ctKey==='forever'?' selected':'')+'>Forever</option><option value="until_fail"'+(ctKey==='until_fail'?' selected':'')+'>Until fails</option><option value="num"'+(ctKey==='num'?' selected':'')+'>Fixed count</option>';
-    html+='<div class="strategy-entry"><div class="entry-row"><span class="entry-label">#'+(i+1)+'</span><select onchange="onEntryChange('+i+',\'skillId\',this.value)">'+sOpts+'</select></div>';
-    html+='<div class="entry-row"><span class="entry-label">Condition</span><select onchange="onEntryChange('+i+',\'condType\',this.value)">'+cOpts+'</select>';
-    if(isNum){html+='<select onchange="onEntryChange('+i+',\'condOp\',this.value)">'+oOpts+'</select><input type="number" value="'+(cond.value||0)+'" style="width:60px" onchange="onEntryChange('+i+',\'condVal\',this.value)"/>';if(cond.type==='target_hp_pct'||cond.type==='self_hp_pct')html+='<span style="color:var(--muted);font-size:11px">%</span>';}
-    html+='</div><div class="entry-row"><span class="entry-label">Count</span><select onchange="onCountSelectChange('+i+',this.value)">'+ctOpts+'</select>';
-    if(isFix)html+='<input type="number" value="'+e.countTarget+'" min="1" style="width:60px" onchange="onEntryChange('+i+',\'countTarget\',this.value)"/>';
-    html+='</div><div class="entry-row"><label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"'+(e.recycle?' checked':'')+' onchange="onEntryChange('+i+',\'recycle\',this.checked)"/> Recycle</label>';
-    if(isFix)html+='<label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"'+(e.forceQuota?' checked':'')+' onchange="onEntryChange('+i+',\'forceQuota\',this.checked)"/> Force Quota</label>';
-    html+='</div><div class="entry-actions">';
-    if(i>0)html+='<button class="btn btn-ghost btn-sm" onclick="moveEntry('+i+',-1)">↑</button>';
-    if(i<_strategyEntries.length-1)html+='<button class="btn btn-ghost btn-sm" onclick="moveEntry('+i+',1)">↓</button>';
-    html+='<button class="btn btn-danger btn-sm" onclick="removeStrategyEntry('+i+')">× Remove</button></div></div>';
+    var e=_strategyEntries[i],cond=e.condition||{},isN=(cond.type!=='always'&&cond.type!=='preceding_failed'),isF=(typeof e.countTarget==='number');
+    var sO='<option value="0"'+(e.skillId==='0'?' selected':'')+'>Slash (Basic)</option>';
+    for(var j=0;j<_skillList.length;j++){var sk=_skillList[j];sO+='<option value="'+esc(sk.id)+'"'+(e.skillId===sk.id?' selected':'')+'>'+esc(sk.label)+'</option>';}
+    var cO='';for(var k=0;k<CT.length;k++)cO+='<option value="'+CT[k][0]+'"'+(cond.type===CT[k][0]?' selected':'')+'>'+CT[k][1]+'</option>';
+    var oO='';for(var o=0;o<OPS.length;o++)oO+='<option value="'+OPS[o]+'"'+(cond.op===OPS[o]?' selected':'')+'>'+OPS[o]+'</option>';
+    var ctk=(typeof e.countTarget==='number')?'num':e.countTarget;
+    var ctO='<option value="forever"'+(ctk==='forever'?' selected':'')+'>Forever</option><option value="until_fail"'+(ctk==='until_fail'?' selected':'')+'>Until fails</option><option value="num"'+(ctk==='num'?' selected':'')+'>Fixed count</option>';
+    h+='<div class="strategy-entry"><div class="entry-row"><span class="entry-label">#'+(i+1)+'</span><select onchange="onEntryChange('+i+',\'skillId\',this.value)">'+sO+'</select></div>';
+    h+='<div class="entry-row"><span class="entry-label">Condition</span><select onchange="onEntryChange('+i+',\'condType\',this.value)">'+cO+'</select>';
+    if(isN){h+='<select onchange="onEntryChange('+i+',\'condOp\',this.value)">'+oO+'</select><input type="number" value="'+(cond.value||0)+'" style="width:60px" onchange="onEntryChange('+i+',\'condVal\',this.value)"/>';if(cond.type==='target_hp_pct'||cond.type==='self_hp_pct')h+='<span style="color:var(--muted);font-size:11px">%</span>';}
+    h+='</div><div class="entry-row"><span class="entry-label">Count</span><select onchange="onCountSelectChange('+i+',this.value)">'+ctO+'</select>';
+    if(isF)h+='<input type="number" value="'+e.countTarget+'" min="1" style="width:60px" onchange="onEntryChange('+i+',\'countTarget\',this.value)"/>';
+    h+='</div><div class="entry-row"><label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"'+(e.recycle?' checked':'')+' onchange="onEntryChange('+i+',\'recycle\',this.checked)"/> Recycle</label>';
+    if(isF)h+='<label style="display:flex;align-items:center;gap:5px;font-size:11px"><input type="checkbox"'+(e.forceQuota?' checked':'')+' onchange="onEntryChange('+i+',\'forceQuota\',this.checked)"/> Force Quota</label>';
+    h+='</div><div class="entry-actions">';
+    if(i>0)h+='<button class="btn btn-ghost btn-sm" onclick="moveEntry('+i+',-1)">↑</button>';
+    if(i<_strategyEntries.length-1)h+='<button class="btn btn-ghost btn-sm" onclick="moveEntry('+i+',1)">↓</button>';
+    h+='<button class="btn btn-danger btn-sm" onclick="removeStrategyEntry('+i+')">× Remove</button></div></div>';
   }
-  container.innerHTML=html;
-}
-function onCountSelectChange(idx, value) {
-  var e=_strategyEntries[idx]; if(!e) return;
-  if(value==='forever'||value==='until_fail') e.countTarget=value;
-  else e.countTarget=(typeof e.countTarget==='number')?e.countTarget:1;
-  _strategyDirty=true; renderStrategyEntries(); saveStrategy();
+  c.innerHTML=h;
 }
 
-// =============================================================================
+// ============================================================
 // HISTORY
-// =============================================================================
-function renderHistory(history) {
-  if (history.length === _lastHistLen) return;
-  _lastHistLen = history.length;
-  var container = document.getElementById('history-list');
-  if (!history.length) { container.innerHTML='<div class="empty-state">No matches recorded yet.</div>'; return; }
-  var html='';
+// ============================================================
+function renderHistory(history){
+  if(history.length===_lastHistLen)return;
+  _lastHistLen=history.length;
+  var c=document.getElementById('history-list');
+  if(!history.length){c.innerHTML='<div class="empty-state">No matches recorded yet.</div>';return;}
+  var h='';
   for(var i=history.length-1;i>=0;i--){
-    var h=history[i]; var enemy=h.enemy||{}; var d=h.pointsDelta||0;
-    var dClass=d>=0?'pos':'neg'; var dStr=(d>=0?'+':'')+d;
-    var rc=h.result==='win'?'win':h.result==='loss'?'loss':'tie';
-    var rl=h.result==='win'?'W':h.result==='loss'?'L':'T';
-    var ts=h.ts?new Date(h.ts):null;
-    var tsStr=ts?(pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())):'';
-    html+='<div class="match-row">';
-    if(enemy.avatarUrl)html+='<img class="match-avatar" src="'+esc(enemy.avatarUrl)+'" onerror="this.style.display=\'none\'"/>';
-    html+='<div class="match-info"><div class="match-enemy">'+esc(enemy.name||'Unknown')+'</div><div class="match-meta">'+esc(tsStr);
-    if(h.matchId)html+=' · <a href="#" onclick="Android.openMatch(\''+esc(h.matchId)+'\');return false">#'+esc(h.matchId)+'</a>';
-    if(enemy.uid)html+=' · <a href="#" onclick="Android.openProfile(\''+esc(enemy.uid)+'\');return false">Profile</a>';
-    html+='</div></div><div class="match-pts"><div class="pts-delta '+dClass+'">'+esc(dStr)+'</div><div style="font-size:9px;color:var(--muted)">'+(h.pointsBefore||0)+'→'+(h.pointsAfter||0)+'</div></div>';
-    html+='<span class="result-badge '+rc+'">'+rl+'</span></div>';
+    var m=history[i],en=m.enemy||{},d=m.pointsDelta||0;
+    var dc=d>=0?'pos':'neg',ds=(d>=0?'+':'')+d;
+    var rc=m.result==='win'?'win':m.result==='loss'?'loss':'tie';
+    var rl=m.result==='win'?'W':m.result==='loss'?'L':'T';
+    var ts=m.ts?new Date(m.ts):null;
+    var tsS=ts?(pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())):'';
+    h+='<div class="match-row">';
+    if(en.avatarUrl)h+='<img class="match-avatar" src="'+esc(en.avatarUrl)+'" onerror="this.style.display=\'none\'"/>';
+    h+='<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div><div class="match-meta">'+esc(tsS);
+    if(m.matchId)h+=' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
+    if(en.uid)h+=' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
+    h+='</div></div><div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'→'+(m.pointsAfter||0)+'</div></div>';
+    h+='<span class="result-badge '+rc+'">'+rl+'</span></div>';
   }
-  container.innerHTML=html;
+  c.innerHTML=h;
 }
-function clearHistory() {
+function clearHistory(){
   if(window.Android){try{Android.setConfigValue('clear_history','1');}catch(e){}}
-  _lastHistLen=0; document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>'; showToast('History cleared');
+  _lastHistLen=0;
+  document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>';
+  showToast('History cleared');
 }
 
-// =============================================================================
+// ============================================================
 // BUTTON ACTIONS
-// =============================================================================
-function toggleRunning() {
-  if (!window.Android) { showToast('Android bridge not ready'); return; }
-  var newRunning = !_isRunning;
-  if (newRunning && _state && !_state.connected) { showToast('Not connected — login first'); return; }
-  try { Android.setRunning(newRunning); } catch(e) { showToast('Error: '+e.message); return; }
-  showToast(newRunning ? 'Bot started' : 'Bot stopped');
+// ============================================================
+function toggleRunning(){
+  if(!window.Android){showToast('Android bridge not ready');return;}
+  var nr=!_isRunning;
+  if(nr&&_state&&!_state.connected){showToast('Not connected — login first');return;}
+  try{Android.setRunning(nr);}catch(e){showToast('Error: '+e.message);return;}
+  showToast(nr?'Bot started':'Bot stopped');
 }
-function doLogin() {
-  if (!window.Android) { showToast('Android bridge not ready'); return; }
-  if (_state && _state.connected) { try{Android.logout();}catch(e){} showToast('Logged out'); }
-  else { try{Android.openLogin();}catch(e){showToast('Error opening login');} }
+function doLogin(){
+  if(!window.Android){showToast('Android bridge not ready');return;}
+  if(_state&&_state.connected){try{Android.logout();}catch(e){}showToast('Logged out');}
+  else{try{Android.openLogin();}catch(e){showToast('Error opening login');}}
 }
-function doDumpCookies() {
-  if (!window.Android) return;
-  try { Android.dumpCookies(); showToast('Cookie dump — check logs'); } catch(e) {}
-}
-function doCopyLogs() {
-  if (!window.Android) return;
-  try { Android.copyLogs(); showToast('Logs copied'); } catch(e) {}
-}
-function doClearLogs() {
-  if (!window.Android) return;
-  try { Android.clearLogs(); } catch(e) {}
+function doCopyLogs(){if(!window.Android)return;try{Android.copyLogs();showToast('Logs copied');}catch(e){}}
+function doClearLogs(){
+  if(!window.Android)return;
+  try{Android.clearLogs();}catch(e){}
   document.getElementById('log-container').innerHTML='<div class="empty-state">No logs yet.</div>';
-  _lastLogHash=''; showToast('Logs cleared');
+  _lastLogHash='';
+  showToast('Logs cleared');
+}
+function doDumpCookies(){
+  if(!window.Android)return;
+  try{Android.dumpCookies();showToast('Cookie dump — check logs');}catch(e){}
+}
+function doRequestBatteryOpt(){
+  if(!window.Android)return;
+  try{Android.requestIgnoreBatteryOptimization();}catch(e){showToast('Not available');}
 }
 
-// =============================================================================
-// TAB SWITCHING
-// =============================================================================
-function switchTab(name) {
-  _activeTab = name;
-  _strategyDirty = false;
-  var tabs = ['battle','strategy','history','settings'];
-  var btns = document.querySelectorAll('.tab-btn');
-  for(var i=0;i<btns.length;i++) btns[i].classList.toggle('active', tabs[i]===name);
-  var panels = document.querySelectorAll('.tab-panel');
-  for(var j=0;j<panels.length;j++) panels[j].classList.toggle('active', panels[j].id==='panel-'+name);
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(name){
+  _activeTab=name;_strategyDirty=false;
+  var tabs=['battle','strategy','history','settings'];
+  var btns=document.querySelectorAll('.tab-btn');
+  for(var i=0;i<btns.length;i++)btns[i].classList.toggle('active',tabs[i]===name);
+  var panels=document.querySelectorAll('.tab-panel');
+  for(var j=0;j<panels.length;j++)panels[j].classList.toggle('active',panels[j].id==='panel-'+name);
   if(name==='strategy'&&_state){var st=_state.strategy||{};_strategyEntries=JSON.parse(JSON.stringify(st.entries||[]));document.getElementById('strategy-toggle').checked=!!st.enabled;renderStrategyEntries();}
   if(name==='history'&&_state){_lastHistLen=-1;renderHistory(_state.matchHistory||[]);}
   if(name==='battle'&&_state){_lastLogHash='';renderLogs(_state.logs||'');}
 }
 
-// =============================================================================
+// ============================================================
 // TOAST
-// =============================================================================
-function showToast(msg) {
+// ============================================================
+function showToast(msg){
   var el=document.getElementById('toast');
-  el.textContent=msg; el.classList.add('show');
-  if(_toastTimer) clearTimeout(_toastTimer);
+  el.textContent=msg;el.classList.add('show');
+  if(_toastTimer)clearTimeout(_toastTimer);
   _toastTimer=setTimeout(function(){el.classList.remove('show');},2000);
 }
 
-// =============================================================================
+// ============================================================
 // UTILS
-// =============================================================================
-function setText(id, val) { var el=document.getElementById(id); if(el) el.textContent=val; }
-function esc(s) {
-  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
+// ============================================================
+function setText(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
-// =============================================================================
+// ============================================================
 // INIT
-// =============================================================================
-document.addEventListener('DOMContentLoaded', function() { startPoll(); });
+// ============================================================
+document.addEventListener('DOMContentLoaded', function(){ startPoll(); });
 </script>
 </body>
 </html>
