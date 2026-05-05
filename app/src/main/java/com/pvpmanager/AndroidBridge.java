@@ -27,22 +27,22 @@ public class AndroidBridge {
     private static final String KEY_STRATEGY         = "strategy_json";
     private static final String KEY_SESSION_VERIFIED = "session_verified";
 
-    // FIX: No time-based expiry. Session persists until the site actually kicks the
-    // user out (redirect to login page detected in verifyGameWebViewSession).
-    // The old 24-hour timer caused phantom "Disconnected" states.
+    // ── Grace period ──────────────────────────────────────────────────────────
+    // After saveConnect() calls setConnected(true), we suppress any automatic
+    // session-clear for GRACE_MS milliseconds so the gameWebView reload can
+    // settle without triggering a false "Disconnected".
+    private static final long GRACE_MS = 12_000;
+    private volatile long connectedAt  = 0;
 
-    // FIX (Problem 1): Persistent log buffer — max 500 entries, FIFO eviction.
-    // Logs are NEVER auto-cleared. Only cleared by the user via "Clear Logs".
+    // ── Log buffer ───────────────────────────────────────────────────────────
     private static final int LOG_MAX_ENTRIES = 500;
+    private final java.util.ArrayDeque<String> logLines = new java.util.ArrayDeque<>();
 
     private final Context           context;
     private final WebView           gameWebView;
     private final WebView           uiWebView;
     private final SharedPreferences prefs;
     private final Handler           mainHandler;
-
-    // Log buffer stores lines as "timestamp|type|message"
-    private final java.util.ArrayDeque<String> logLines = new java.util.ArrayDeque<>();
 
     public AndroidBridge(Context context, WebView gameWebView, WebView uiWebView) {
         this.context     = context;
@@ -52,38 +52,39 @@ public class AndroidBridge {
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
 
-    // -------------------------------------------------------------------------
-    // SESSION  — real-only detection, no timer
-    // -------------------------------------------------------------------------
+    // ── Session ───────────────────────────────────────────────────────────────
 
     /**
-     * Marks the session as active or cleared.
-     * NOT exposed as @JavascriptInterface — only trusted Java code may call this.
+     * Marks the session active or cleared.
+     * NOT a @JavascriptInterface — only trusted Java code may call this.
      */
     public void setConnected(boolean connected) {
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) {
+            connectedAt = System.currentTimeMillis(); // start grace period
             ed.putBoolean(KEY_SESSION_VERIFIED, true);
         } else {
             ed.remove(KEY_SESSION_VERIFIED);
         }
-        ed.commit(); // synchronous — next getState() sees the change immediately
+        ed.commit(); // synchronous so next getState() reads updated value
         appendLog("system", connected ? "✅ Connected" : "❌ Disconnected");
         notifyUiStateChanged();
     }
 
-    /**
-     * FIX: Removed 24-hour timer. Session is valid as long as the site hasn't
-     * redirected to a login page. verifyGameWebViewSession() in MainActivity is
-     * the sole authority for clearing the session.
-     */
     public boolean isSessionVerified() {
         return prefs.getBoolean(KEY_SESSION_VERIFIED, false);
     }
 
-    // -------------------------------------------------------------------------
-    // JS INTERFACE
-    // -------------------------------------------------------------------------
+    /**
+     * Returns true if we are within the grace period after the last successful
+     * saveConnect(). During this window verifyGameWebViewSession must NOT clear
+     * the session — the gameWebView is still navigating to pvp.php.
+     */
+    public boolean inGracePeriod() {
+        return (System.currentTimeMillis() - connectedAt) < GRACE_MS;
+    }
+
+    // ── JS Interface ─────────────────────────────────────────────────────────
 
     @JavascriptInterface
     public void openLogin() {
@@ -96,6 +97,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void logout() {
+        connectedAt = 0;
         prefs.edit()
              .putBoolean(KEY_RUNNING, false)
              .remove(KEY_SESSION_VERIFIED)
@@ -131,7 +133,6 @@ public class AndroidBridge {
             state.put("connected", connected);
 
             boolean running = prefs.getBoolean(KEY_RUNNING, false);
-            // Stop the bot automatically only if the session was truly cleared
             if (running && !connected) {
                 prefs.edit().putBoolean(KEY_RUNNING, false).commit();
                 running = false;
@@ -140,7 +141,7 @@ public class AndroidBridge {
             state.put("running", running);
 
             JSONObject config = new JSONObject();
-            config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
+            config.put("debugLogs",     prefs.getBoolean(KEY_DEBUG_LOGS, false));
             config.put("pollIntervalMs",
                        Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")));
             state.put("config", config);
@@ -148,21 +149,18 @@ public class AndroidBridge {
             String stratJson = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
             state.put("strategy", new JSONObject(stratJson));
 
-            // Build log string from the deque (thread-safe snapshot)
             StringBuilder sb = new StringBuilder();
             synchronized (logLines) {
-                for (String line : logLines) {
-                    sb.append(line).append("\n");
-                }
+                for (String line : logLines) sb.append(line).append("\n");
             }
             state.put("logs", sb.toString());
 
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
                 JSONObject live = new JSONObject(cachedLive);
-                state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
-                state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
-                state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
+                state.put("match",        live.optJSONObject("match")    != null ? live.getJSONObject("match")    : new JSONObject());
+                state.put("stats",        live.optJSONObject("stats")    != null ? live.getJSONObject("stats")    : new JSONObject());
+                state.put("skillList",    live.optJSONArray("skillList") != null ? live.getJSONArray("skillList") : new JSONArray());
                 state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
             } else {
                 state.put("match",        new JSONObject("{\"active\":false}"));
@@ -245,18 +243,12 @@ public class AndroidBridge {
         }
     }
 
-    /**
-     * FIX: commit() instead of apply() — synchronous write so the very next
-     * getState() call on the poll tick reads the updated value, eliminating
-     * the toggle-flip-back race condition.
-     */
     @JavascriptInterface
     public void setConfigBool(String key, boolean value) {
         if ("debug_logs".equals(key)) {
             prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).commit();
             evaluateInGameWebView(
                 "localStorage.setItem('et_pvp_debug_logs','" + value + "');");
-            // No notifyUiStateChanged — JS owns the toggle state after user interaction
         }
     }
 
@@ -332,9 +324,7 @@ public class AndroidBridge {
         openUrl("https://demonicscans.org/pvp_battle.php?match_id=" + matchId);
     }
 
-    // -------------------------------------------------------------------------
-    // INTERNAL HELPERS
-    // -------------------------------------------------------------------------
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void openUrl(String url) {
         mainHandler.post(() -> {
@@ -350,19 +340,11 @@ public class AndroidBridge {
         });
     }
 
-    /**
-     * FIX (Problem 1): Thread-safe FIFO log buffer.
-     * Max 500 entries. Oldest entries are dropped first when over the limit.
-     * Logs are NEVER auto-cleared — only via clearLogs().
-     */
     public void appendLog(String type, String message) {
         String line = System.currentTimeMillis() + "|" + type + "|" + message;
         synchronized (logLines) {
             logLines.addLast(line);
-            // FIFO eviction: drop oldest when over limit
-            while (logLines.size() > LOG_MAX_ENTRIES) {
-                logLines.removeFirst();
-            }
+            while (logLines.size() > LOG_MAX_ENTRIES) logLines.removeFirst();
         }
         Log.d("PvPManager", type + ": " + message);
     }
