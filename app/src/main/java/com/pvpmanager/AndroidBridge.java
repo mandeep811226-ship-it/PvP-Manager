@@ -94,9 +94,13 @@ public class AndroidBridge {
     public void setConnected(boolean connected) {
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) {
-            connectedAt = System.currentTimeMillis(); // start grace period
+            // FIX: set connectedAt BEFORE the synchronous commit() so that any
+            // onPageFinished callback that races in during the disk-write already
+            // sees an active grace period and cannot call setConnected(false).
+            connectedAt = System.currentTimeMillis();
             ed.putBoolean(KEY_SESSION_VERIFIED, true);
         } else {
+            connectedAt = 0; // clear grace period on explicit disconnect/logout
             ed.remove(KEY_SESSION_VERIFIED);
         }
         ed.commit(); // synchronous so next getState() reads updated value
