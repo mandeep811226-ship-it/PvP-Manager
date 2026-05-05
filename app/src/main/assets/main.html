@@ -43,7 +43,7 @@
     font-size:13px;
     font-weight:700;
   }
-  #btn-login.connected{background:var(--bg3);color:var(--red);border:1px solid rgba(239,68,68,0.4)}
+  #btn-login.signed-in{background:#1a2e1a;color:#22c55e;border:1px solid rgba(34,197,94,0.45)}
 
   /* ── STATS ── */
   #stats-row{display:flex;gap:6px;padding:8px 12px;background:var(--bg);overflow-x:auto;flex-shrink:0;scrollbar-width:none}
@@ -152,7 +152,7 @@
     <div class="spacer"></div>
     <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
     <!-- FIX (Problem 2): Login is the dominant CTA — full-width, gold when disconnected -->
-    <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Login</button>
+    <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Sign In</button>
   </div>
 
   <div id="stats-row">
@@ -351,14 +351,14 @@ function applyState(s) {
   var label = document.getElementById('conn-label');
   var loginBtn = document.getElementById('btn-login');
   if (s.connected) {
-    dot.className   = 'on';
-    label.textContent = 'Connected';
-    loginBtn.textContent = 'Logout';
-    loginBtn.className   = 'btn btn-ghost connected';
+    dot.className        = 'on';
+    label.textContent    = 'Connected';
+    loginBtn.textContent = 'Sign Out';
+    loginBtn.className   = 'btn signed-in';
   } else {
-    dot.className   = '';
-    label.textContent = 'Disconnected';
-    loginBtn.textContent = 'Login';
+    dot.className        = '';
+    label.textContent    = 'Disconnected';
+    loginBtn.textContent = 'Sign In';
     loginBtn.className   = 'btn btn-gold';
   }
 
@@ -562,14 +562,18 @@ function clearHistory(){
 function toggleRunning(){
   if(!window.Android){showToast('Android bridge not ready');return;}
   var nr=!_isRunning;
-  if(nr&&_state&&!_state.connected){showToast('Not connected — login first');return;}
+  if(nr&&_state&&!_state.connected){showToast('Not connected — sign in first');return;}
   try{Android.setRunning(nr);}catch(e){showToast('Error: '+e.message);return;}
   showToast(nr?'Bot started':'Bot stopped');
 }
 function doLogin(){
   if(!window.Android){showToast('Android bridge not ready');return;}
-  if(_state&&_state.connected){try{Android.logout();}catch(e){}showToast('Logged out');}
-  else{try{Android.openLogin();}catch(e){showToast('Error opening login');}}
+  if(_state&&_state.connected){
+    try{Android.logout();}catch(e){}
+    showToast('Signed out');
+  } else {
+    try{Android.openLogin();}catch(e){showToast('Error opening sign in');}
+  }
 }
 function doCopyLogs(){if(!window.Android)return;try{Android.copyLogs();showToast('Logs copied');}catch(e){}}
 function doClearLogs(){
