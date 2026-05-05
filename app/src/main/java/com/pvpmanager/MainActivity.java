@@ -156,8 +156,19 @@ public class MainActivity extends AppCompatActivity {
         root.addView(loginContainer);
         setContentView(root);
 
-        // Load the game page immediately so cookies are attempted on first run
-        gameWebView.loadUrl(PVP_URL);
+        // FIX: Only load pvp.php on startup if the user is NOT already connected.
+        // Previously this was unconditional — on every app restart, gameWebView would
+        // load pvp.php, the site would redirect to sign.php (cookies not sent yet in a
+        // fresh process), onPageFinished would fire with the sign.php URL, and
+        // verifyGameWebViewSession would call setConnected(false) — wiping a perfectly
+        // valid saved session before the user touched anything.
+        // When already connected, gameWebView will load pvp.php the first time the bot
+        // is started (via setRunning(true) → evaluateInGameWebView), so nothing is lost.
+        if (!bridge.isSessionVerified()) {
+            gameWebView.loadUrl(PVP_URL);
+        } else {
+            bridge.appendLog("system", "Resuming saved session — skipping startup pvp.php load");
+        }
 
         // Start foreground service
         Intent svcIntent = new Intent(this, PvpService.class);
@@ -363,13 +374,20 @@ public class MainActivity extends AppCompatActivity {
             }, 800);
         });
 
-        // 5. Refresh the app UI in the background so it shows Connected immediately
+        // 5. Auto-close the login overlay and return user to the app UI.
+        //    Delay slightly so the green CONNECTED button is visible for a moment
+        //    before the overlay dismisses — gives clear visual confirmation.
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            closeLoginOverlay();
+        }, 800);
+
+        // 6. Refresh the app UI so it shows Connected immediately after overlay closes.
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
                     "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
-        }, 500);
+        }, 900);
     }
 
     /**
