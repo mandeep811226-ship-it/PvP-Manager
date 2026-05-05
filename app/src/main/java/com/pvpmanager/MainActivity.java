@@ -254,9 +254,12 @@ public class MainActivity extends AppCompatActivity {
         loginWebView.requestFocus();
         String cur = loginWebView.getUrl();
         // Load the site if blank/null or if currently on an auth page
+        // FIX: The real sign-in page is /sign.php — not /signin or /login.
+        // All four auth-page checks in this file must include sign.php.
         boolean onAuthPage = cur != null && (
-                cur.contains("/signin") || cur.contains("/login") ||
-                cur.contains("/register") || cur.equals("about:blank") || cur.isEmpty());
+                cur.contains("/sign.php") || cur.contains("/signin") ||
+                cur.contains("/login")    || cur.contains("/register") ||
+                cur.equals("about:blank") || cur.isEmpty());
         if (cur == null || cur.isEmpty() || onAuthPage) {
             loginWebView.loadUrl("https://demonicscans.org");
         }
@@ -287,9 +290,13 @@ public class MainActivity extends AppCompatActivity {
         String currentUrl = loginWebView.getUrl();
         bridge.appendLog("debug", "loginWebView URL: " + currentUrl);
 
-        // Primary check — URL is on the site and NOT on an auth page
+        // Primary check — URL is on the site and NOT on an auth page.
+        // FIX: The real auth page is /sign.php. The original code only checked
+        // for "signin" and "login" substrings, so a redirect to sign.php was
+        // treated as a valid logged-in page, causing urlOk=true on a sign-in URL.
         boolean urlOk = currentUrl != null
                 && currentUrl.contains("demonicscans.org")
+                && !currentUrl.contains("sign.php")
                 && !currentUrl.contains("signin")
                 && !currentUrl.contains("login")
                 && !currentUrl.contains("register")
@@ -329,7 +336,7 @@ public class MainActivity extends AppCompatActivity {
             //    URL might be a login-redirect and reload() would replay that redirect).
             //    Add a short delay so CookieManager.flush() fully propagates before
             //    gameWebView makes its first request (avoids race where cookies aren't
-            //    sent on the very first request and the site redirects to /signin).
+            //    sent on the very first request and the site redirects to /sign.php).
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (gameWebView != null) {
                     CookieManager.getInstance().flush();
@@ -438,8 +445,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // ── Explicit auth-page redirect = definite sign-out ──────────────────
-        boolean onAuthPage = url.contains("/signin") || url.contains("/login") ||
-                url.contains("/register") || url.contains("/signup");
+        // FIX: demonicscans.org uses /sign.php as its login page, not /signin
+        // or /login. Without this, a redirect to sign.php was not recognised as
+        // a logout event and the session stayed falsely "Connected".
+        boolean onAuthPage = url.contains("/sign.php") || url.contains("/signin") ||
+                url.contains("/login") || url.contains("/register") || url.contains("/signup");
 
         if (onAuthPage) {
             bridge.appendLog("warning", "Redirected to auth page — clearing session: " + url);
