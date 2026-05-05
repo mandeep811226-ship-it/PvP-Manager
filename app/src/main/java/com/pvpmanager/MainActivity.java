@@ -78,7 +78,9 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
-                verifyGameWebViewSession(url);
+                // NOTE: verifyGameWebViewSession removed — it caused false disconnects
+                // by watching redirects to sign.php on startup before cookies were sent.
+                // Connection state is now set ONLY by saveConnect() and logout().
                 injectUserScript(view);
             }
         });
@@ -93,7 +95,6 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(uiWebView, true);
 
         bridge = new AndroidBridge(this, gameWebView, uiWebView);
-        bridge.startKeepalive();
         uiWebView.addJavascriptInterface(bridge, "Android");
         uiWebView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) { return false; }
@@ -156,19 +157,12 @@ public class MainActivity extends AppCompatActivity {
         root.addView(loginContainer);
         setContentView(root);
 
-        // FIX: Only load pvp.php on startup if the user is NOT already connected.
-        // Previously this was unconditional — on every app restart, gameWebView would
-        // load pvp.php, the site would redirect to sign.php (cookies not sent yet in a
-        // fresh process), onPageFinished would fire with the sign.php URL, and
-        // verifyGameWebViewSession would call setConnected(false) — wiping a perfectly
-        // valid saved session before the user touched anything.
-        // When already connected, gameWebView will load pvp.php the first time the bot
-        // is started (via setRunning(true) → evaluateInGameWebView), so nothing is lost.
-        if (!bridge.isSessionVerified()) {
-            gameWebView.loadUrl(PVP_URL);
-        } else {
-            bridge.appendLog("system", "Resuming saved session — skipping startup pvp.php load");
-        }
+        // Load pvp.php on startup. Since verifyGameWebViewSession is removed,
+        // sign.php redirects no longer cause false disconnects.
+        // If already connected, cookies will be sent and the page loads normally.
+        // If not connected, the page loads for context but connection state is
+        // only changed by saveConnect() or logout() — never by page navigation.
+        gameWebView.loadUrl(PVP_URL);
 
         // Start foreground service
         Intent svcIntent = new Intent(this, PvpService.class);
@@ -296,14 +290,12 @@ public class MainActivity extends AppCompatActivity {
 
     // ── Save & Connect ────────────────────────────────────────────────────────
     //
-    // New flow:
-    //  1. Verify the loginWebView URL + cookies
-    //  2. Mark connected (prefs, grace period)
-    //  3. Copy localStorage from loginWebView → gameWebView (for token-based auth)
-    //  4. Load PVP_URL directly in gameWebView (NOT reload — reload would replay
-    //     whatever redirect URL it's currently sitting on)
-    //  5. Button shows ✓ CONNECTED — overlay stays open
-    //  6. User taps "← BACK TO APP" when ready
+    // Flow (simplified — grace period removed):
+    //  1. Flush CookieManager and check cookies exist for the domain
+    //  2. Verify URL is on the site and NOT on a login/auth page
+    //  3. setConnected(true) — this is the ONLY place that sets connected=true
+    //  4. Auto-close overlay → user sees Connected state immediately
+    //  5. Load PVP_URL in gameWebView so the bot can operate
     // ─────────────────────────────────────────────────────────────────────────
 
     public void saveConnect() {
@@ -313,15 +305,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         bridge.appendLog("system", "SAVE & CONNECT tapped");
+
+        // Flush ensures CookieManager has the latest cookies from loginWebView
         CookieManager.getInstance().flush();
 
         String currentUrl = loginWebView.getUrl();
         bridge.appendLog("debug", "loginWebView URL: " + currentUrl);
 
-        // Primary check — URL is on the site and NOT on an auth page.
-        // FIX: The real auth page is /sign.php. The original code only checked
-        // for "signin" and "login" substrings, so a redirect to sign.php was
-        // treated as a valid logged-in page, causing urlOk=true on a sign-in URL.
+        // Check 1: URL must be on the site and NOT on an auth/sign-in page
         boolean urlOk = currentUrl != null
                 && currentUrl.contains("demonicscans.org")
                 && !currentUrl.contains("sign.php")
@@ -330,64 +321,52 @@ public class MainActivity extends AppCompatActivity {
                 && !currentUrl.contains("register")
                 && !currentUrl.equals("about:blank");
 
-        // Secondary check — any cookies set for the domain
+        // Check 2: Cookies must exist for the domain
         String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
         boolean hasCookies = cookies != null && !cookies.trim().isEmpty();
 
         bridge.appendLog("debug", "urlOk=" + urlOk + " hasCookies=" + hasCookies
                 + " cookieLen=" + (cookies == null ? 0 : cookies.length()));
 
-        if (!urlOk && !hasCookies) {
-            // Hard failure — not on site or no cookies at all
+        if (!urlOk || !hasCookies) {
+            // Failure — must be logged in on the site with valid cookies
             setConnectButtonState(ConnectState.FAILURE);
-            Toast.makeText(this,
-                "Please log in on the site first, then tap Save & Connect",
-                Toast.LENGTH_LONG).show();
+            String reason = !hasCookies ? "No cookies found — please log in first"
+                                        : "Please log in on the site, then tap Save & Connect";
+            Toast.makeText(this, reason, Toast.LENGTH_LONG).show();
+            bridge.appendLog("warning", "saveConnect failed: urlOk=" + urlOk + " hasCookies=" + hasCookies);
             return;
         }
 
         // ── SUCCESS PATH ─────────────────────────────────────────────────────
 
-        // 1. Mark session connected (also starts the grace period inside AndroidBridge)
+        // Mark connected — this is the ONLY place setConnected(true) is called.
+        // No grace period, no page-load watching. State is permanent until logout.
         bridge.setConnected(true);
-        bridge.appendLog("system", "Session saved ✓ — syncing to game WebView…");
+        bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
 
-        // 2. Show the green connected button; overlay stays open
+        // Show green button briefly so user sees confirmation
         setConnectButtonState(ConnectState.SUCCESS);
 
-        // 3. Copy localStorage from loginWebView → gameWebView.
-        //    Modern sites may store auth tokens in localStorage rather than (or in
-        //    addition to) HTTP cookies. Since each WebView has its own JS context,
-        //    we must copy them explicitly.
-        syncLocalStorageToGameWebView(() -> {
-            // 4. Navigate gameWebView directly to PVP_URL (not reload — the current
-            //    URL might be a login-redirect and reload() would replay that redirect).
-            //    Add a short delay so CookieManager.flush() fully propagates before
-            //    gameWebView makes its first request (avoids race where cookies aren't
-            //    sent on the very first request and the site redirects to /sign.php).
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (gameWebView != null) {
-                    CookieManager.getInstance().flush();
-                    bridge.appendLog("debug", "Loading " + PVP_URL + " in gameWebView");
-                    gameWebView.loadUrl(PVP_URL);
-                }
-            }, 800);
-        });
-
-        // 5. Auto-close the login overlay and return user to the app UI.
-        //    Delay slightly so the green CONNECTED button is visible for a moment
-        //    before the overlay dismisses — gives clear visual confirmation.
+        // Close the overlay immediately and refresh UI — user lands on app with
+        // Connected state already painted (no flicker, no delay).
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             closeLoginOverlay();
-        }, 800);
-
-        // 6. Refresh the app UI so it shows Connected immediately after overlay closes.
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            // Explicitly refresh UI after overlay closes
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
                     "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
-        }, 900);
+        }, 600);
+
+        // Load PVP_URL in gameWebView so bot scripts are ready
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (gameWebView != null) {
+                CookieManager.getInstance().flush();
+                bridge.appendLog("debug", "Loading " + PVP_URL + " in gameWebView");
+                gameWebView.loadUrl(PVP_URL);
+            }
+        }, 800);
     }
 
     /**
@@ -452,90 +431,7 @@ public class MainActivity extends AppCompatActivity {
             });
     }
 
-    // ── Session verification ──────────────────────────────────────────────────
-    //
-    // Called every time gameWebView finishes loading a page.
-    //
-    // Rules:
-    //  • ONLY call setConnected(false) on an explicit auth-page redirect.
-    //  • NEVER clear the session during the grace period after saveConnect().
-    //  • Positive confirmation (on-site + cookies) auto-sets Connected if not
-    //    already set (handles cold-start when the user was previously logged in).
-    // ─────────────────────────────────────────────────────────────────────────
 
-    private void verifyGameWebViewSession(String url) {
-        if (gameWebView == null || bridge == null) return;
-
-        // ── Skip non-site pages entirely ─────────────────────────────────────
-        // about:blank, chrome://, data:, etc. are not meaningful for session checks.
-        if (url == null || url.isEmpty() || url.startsWith("about:") ||
-                url.startsWith("data:") || url.startsWith("chrome:")) {
-            return;
-        }
-
-        // ── Within grace period — don't touch the session ────────────────────
-        if (bridge.inGracePeriod()) {
-            bridge.appendLog("debug", "Grace period active — skipping session verify for: " + url);
-            return;
-        }
-
-        // ── Explicit auth-page redirect = definite sign-out ──────────────────
-        // FIX: demonicscans.org uses /sign.php as its login page, not /signin
-        // or /login. Without this, a redirect to sign.php was not recognised as
-        // a logout event and the session stayed falsely "Connected".
-        boolean onAuthPage = url.contains("/sign.php") || url.contains("/signin") ||
-                url.contains("/login") || url.contains("/register") || url.contains("/signup");
-
-        if (onAuthPage) {
-            bridge.appendLog("warning", "Redirected to auth page — clearing session: " + url);
-            bridge.setConnected(false);
-            return;
-        }
-
-        // ── Positive: on-site + cookies → connected ───────────────────────────
-        boolean onSite = url.contains("demonicscans.org");
-        CookieManager.getInstance().flush();
-        String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-        boolean hasCookies = cookies != null && !cookies.trim().isEmpty();
-
-        if (onSite && hasCookies) {
-            if (!bridge.isSessionVerified()) {
-                bridge.appendLog("system", "✅ Session confirmed via URL + cookies");
-                bridge.setConnected(true);
-            }
-            return;
-        }
-
-        // ── On-site but no cookies yet — check DOM (don't clear session!) ────
-        // NOTE: We NEVER call setConnected(false) here. Cookies may simply not
-        // have been flushed to CookieManager yet (timing issue). Only an explicit
-        // redirect to an auth page should cause a disconnect.
-        if (onSite) {
-            String js =
-                "(function(){" +
-                "  try {" +
-                "    var loggedIn =" +
-                "      !!document.querySelector('[class*=\"user\"], [id*=\"user\"]," +
-                "          [class*=\"profile\"], [class*=\"avatar\"]," +
-                "          [data-user], [id*=\"account\"]') ||" +
-                "      !!document.querySelector('a[href*=\"pvp\"], a[href*=\"profile\"]');" +
-                "    return loggedIn ? '1' : '0';" +
-                "  } catch(e) { return '0'; }" +
-                "})();";
-            gameWebView.evaluateJavascript(js, result -> {
-                if (bridge == null) return;
-                if ("\"1\"".equals(result) && !bridge.isSessionVerified()) {
-                    bridge.appendLog("system", "✅ Session confirmed via DOM");
-                    bridge.setConnected(true);
-                } else {
-                    // Session uncertain — do NOT disconnect. Cookies may just not
-                    // be readable yet from this context.
-                    bridge.appendLog("debug", "Session uncertain (no cookies, dom=" + result + ") — keeping current state");
-                }
-            });
-        }
-        // If not on-site at all (some random URL): ignore silently.
-    }
 
     // ── Overlay helpers ───────────────────────────────────────────────────────
 
