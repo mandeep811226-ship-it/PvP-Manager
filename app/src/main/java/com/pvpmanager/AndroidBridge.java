@@ -166,7 +166,28 @@ public class AndroidBridge {
             synchronized (logLines) {
                 for (String line : logLines) sb.append(line).append("\n");
             }
-            state.put("logs", sb.toString());
+
+            // Merge game battle logs (from pvp_manager.js logHistory) with system logs.
+            // gameLogs is serialized in the same "unixMs|type|message" pipe format.
+            String gameLogs = "";
+            String cachedForLogs = prefs.getString("cached_live_state", null);
+            if (cachedForLogs != null) {
+                try {
+                    JSONObject liveForLogs = new JSONObject(cachedForLogs);
+                    gameLogs = liveForLogs.optString("gameLogs", "");
+                } catch (JSONException ignored) {}
+            }
+
+            String systemLogs = sb.toString();
+            String combinedLogs;
+            if (!gameLogs.isEmpty() && !systemLogs.trim().isEmpty()) {
+                combinedLogs = gameLogs + "\n" + systemLogs;
+            } else if (!gameLogs.isEmpty()) {
+                combinedLogs = gameLogs;
+            } else {
+                combinedLogs = systemLogs;
+            }
+            state.put("logs", combinedLogs);
 
             // Guard cached_live_state JSON — a malformed value must NOT crash getState().
             boolean liveLoaded = false;
@@ -343,7 +364,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void openProfile(String uid) {
-        openUrl("https://demonicscans.org/player.php?id=" + uid);
+        openUrl("https://demonicscans.org/player.php?pid=" + uid);
     }
 
     @JavascriptInterface
