@@ -27,14 +27,6 @@ public class AndroidBridge {
     private static final String KEY_STRATEGY         = "strategy_json";
     private static final String KEY_SESSION_VERIFIED = "session_verified";
 
-    // ── Grace period ──────────────────────────────────────────────────────────
-    // After saveConnect() calls setConnected(true), we suppress any automatic
-    // session-clear for GRACE_MS milliseconds so the gameWebView reload can
-    // settle without triggering a false "Disconnected".
-    // 30s grace: slow sites + multiple redirects need extra time.
-    private static final long GRACE_MS = 30_000;
-    private volatile long connectedAt  = 0;
-
     // ── Log buffer ───────────────────────────────────────────────────────────
     private static final int LOG_MAX_ENTRIES = 500;
     private final java.util.ArrayDeque<String> logLines = new java.util.ArrayDeque<>();
@@ -53,37 +45,9 @@ public class AndroidBridge {
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
 
-    // ── Session keepalive ─────────────────────────────────────────────────────
-    // Re-verify the session every 60 seconds using CookieManager (no page load
-    // needed). This keeps the Connected indicator accurate without requiring the
-    // gameWebView to navigate. Only clears the session if cookies have completely
-    // disappeared — NOT just because they briefly weren't readable.
-    private static final long KEEPALIVE_INTERVAL_MS = 60_000;
-    private final Handler keepaliveHandler = new Handler(Looper.getMainLooper());
-    private final Runnable keepaliveRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (isSessionVerified() && !inGracePeriod()) {
-                CookieManager.getInstance().flush();
-                String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-                boolean stillHasCookies = cookies != null && !cookies.trim().isEmpty();
-                if (!stillHasCookies) {
-                    appendLog("warning", "Session keepalive: cookies gone — disconnecting");
-                    setConnected(false);
-                }
-            }
-            keepaliveHandler.postDelayed(this, KEEPALIVE_INTERVAL_MS);
-        }
-    };
-
-    public void startKeepalive() {
-        keepaliveHandler.removeCallbacks(keepaliveRunnable);
-        keepaliveHandler.postDelayed(keepaliveRunnable, KEEPALIVE_INTERVAL_MS);
-    }
-
-    public void stopKeepalive() {
-        keepaliveHandler.removeCallbacks(keepaliveRunnable);
-    }
+    // ── Keepalive stubs (kept so MainActivity compiles without changes) ───────
+    public void startKeepalive() {}
+    public void stopKeepalive()  {}
 
     // ── Session ───────────────────────────────────────────────────────────────
 
@@ -94,13 +58,8 @@ public class AndroidBridge {
     public void setConnected(boolean connected) {
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) {
-            // FIX: set connectedAt BEFORE the synchronous commit() so that any
-            // onPageFinished callback that races in during the disk-write already
-            // sees an active grace period and cannot call setConnected(false).
-            connectedAt = System.currentTimeMillis();
             ed.putBoolean(KEY_SESSION_VERIFIED, true);
         } else {
-            connectedAt = 0; // clear grace period on explicit disconnect/logout
             ed.remove(KEY_SESSION_VERIFIED);
         }
         ed.commit(); // synchronous so next getState() reads updated value
@@ -112,13 +71,9 @@ public class AndroidBridge {
         return prefs.getBoolean(KEY_SESSION_VERIFIED, false);
     }
 
-    /**
-     * Returns true if we are within the grace period after the last successful
-     * saveConnect(). During this window verifyGameWebViewSession must NOT clear
-     * the session — the gameWebView is still navigating to pvp.php.
-     */
+    /** Grace period removed — was causing false disconnects on app restart. */
     public boolean inGracePeriod() {
-        return (System.currentTimeMillis() - connectedAt) < GRACE_MS;
+        return false;
     }
 
     // ── JS Interface ─────────────────────────────────────────────────────────
@@ -134,7 +89,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void logout() {
-        connectedAt = 0;
         prefs.edit()
              .putBoolean(KEY_RUNNING, false)
              .remove(KEY_SESSION_VERIFIED)
