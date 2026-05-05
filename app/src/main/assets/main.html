@@ -43,7 +43,7 @@
     font-size:13px;
     font-weight:700;
   }
-  #btn-login.signed-in{background:#1a2e1a;color:#22c55e;border:1px solid rgba(34,197,94,0.45)}
+  #btn-login.signed-in{background:#1a2e1a !important;color:#22c55e !important;border:1px solid rgba(34,197,94,0.45) !important;font-weight:700}
 
   /* ── STATS ── */
   #stats-row{display:flex;gap:6px;padding:8px 12px;background:var(--bg);overflow-x:auto;flex-shrink:0;scrollbar-width:none}
@@ -351,15 +351,23 @@ function applyState(s) {
   var label = document.getElementById('conn-label');
   var loginBtn = document.getElementById('btn-login');
   if (s.connected) {
-    dot.className        = 'on';
-    label.textContent    = 'Connected';
-    loginBtn.textContent = 'Sign Out';
-    loginBtn.className   = 'btn signed-in';
+    dot.className           = 'on';
+    label.textContent       = 'Connected';
+    loginBtn.textContent    = 'Sign Out';
+    loginBtn.className      = 'btn signed-in';
+    loginBtn.style.background = '#1a2e1a';
+    loginBtn.style.color      = '#22c55e';
+    loginBtn.style.border     = '1px solid rgba(34,197,94,0.45)';
+    loginBtn.style.fontWeight = '700';
   } else {
-    dot.className        = '';
-    label.textContent    = 'Disconnected';
-    loginBtn.textContent = 'Sign In';
-    loginBtn.className   = 'btn btn-gold';
+    dot.className           = '';
+    label.textContent       = 'Disconnected';
+    loginBtn.textContent    = 'Sign In';
+    loginBtn.className      = 'btn btn-gold';
+    loginBtn.style.background = 'var(--gold)';
+    loginBtn.style.color      = '#0a0612';
+    loginBtn.style.border     = 'none';
+    loginBtn.style.fontWeight = '700';
   }
 
   // Start / Stop
