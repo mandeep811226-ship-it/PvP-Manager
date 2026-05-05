@@ -1,4 +1,4 @@
-name: Build PvP Manager APK
+name: Build PvP Manager APK 
 
 on:
   push:
