@@ -170,6 +170,27 @@ public class MainActivity extends AppCompatActivity {
         else startService(svcIntent);
 
         requestRuntimePermissions();
+
+        // Startup cookie validation.
+        // KEY_SESSION_VERIFIED survives process kills but session cookies may not
+        // (Chromium only persists cookies that have Expires/Max-Age; session cookies
+        // live in memory only). Wait 1 s for the Chromium store to finish loading
+        // from disk, then verify the stored session flag against real cookie presence.
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (bridge != null && bridge.isSessionVerified()) {
+                String cookies = CookieManager.getInstance()
+                        .getCookie("https://demonicscans.org");
+                boolean hasCookies = cookies != null && !cookies.trim().isEmpty();
+                if (!hasCookies) {
+                    bridge.setConnected(false);
+                    bridge.appendLog("system",
+                        "Startup: session flag was set but no cookies found — reset to disconnected");
+                } else {
+                    bridge.appendLog("system",
+                        "Startup: session resumed, cookies present (" + cookies.length() + " chars)");
+                }
+            }
+        }, 1000);
     }
 
     // ── Runtime permissions ───────────────────────────────────────────────────
@@ -367,6 +388,15 @@ public class MainActivity extends AppCompatActivity {
                 gameWebView.loadUrl(PVP_URL);
             }
         }, 800);
+
+        // Final UI sync after all deferred work settles.
+        // Ensures Connected state is painted even if a poll tick raced the 600ms close.
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (uiWebView != null) {
+                uiWebView.evaluateJavascript(
+                    "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+            }
+        }, 1200);
     }
 
     /**
