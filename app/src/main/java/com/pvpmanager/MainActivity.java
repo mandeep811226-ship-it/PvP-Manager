@@ -138,9 +138,16 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
-                // Reset button only when NOT already connected
-                if (bridge != null && !bridge.isSessionVerified()) {
-                    setConnectButtonState(ConnectState.IDLE);
+                // FIX: Only reset to IDLE if not connected.
+                // If the user is already connected and the loginWebView navigates
+                // (e.g. they browse around), we must NOT flip the button back to
+                // SAVE & CONNECT — it should stay green (CONNECTED/SUCCESS).
+                if (bridge != null) {
+                    if (bridge.isSessionVerified()) {
+                        setConnectButtonState(ConnectState.SUCCESS);
+                    } else {
+                        setConnectButtonState(ConnectState.IDLE);
+                    }
                 }
             }
         });
@@ -248,8 +255,18 @@ public class MainActivity extends AppCompatActivity {
 
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
-        // Reset button to IDLE whenever the overlay opens
-        setConnectButtonState(ConnectState.IDLE);
+        // FIX: Only reset the button to IDLE when NOT already connected.
+        // Previously this was unconditional — so if the user tapped "Login"
+        // a second time (e.g. main UI showed Disconnected due to a race), the
+        // button would flip back to "SAVE & CONNECT" even though the session
+        // was still valid in prefs. The user would have to tap Save & Connect
+        // again for no reason.
+        // If already connected: show the green CONNECTED button immediately.
+        if (bridge != null && bridge.isSessionVerified()) {
+            setConnectButtonState(ConnectState.SUCCESS);
+        } else {
+            setConnectButtonState(ConnectState.IDLE);
+        }
         loginContainer.setVisibility(View.VISIBLE);
         loginWebView.requestFocus();
         String cur = loginWebView.getUrl();
