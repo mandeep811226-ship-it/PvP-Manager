@@ -497,15 +497,20 @@ public class MainActivity extends AppCompatActivity {
     private void closeLoginOverlay() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
-        // Don't navigate loginWebView to about:blank here — it serves no purpose
-        // and the extra onPageFinished event can cause noise. We'll reset it
-        // only the next time the overlay opens (in showLogin).
-        setConnectButtonState(ConnectState.IDLE);
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (uiWebView != null)
-                uiWebView.evaluateJavascript(
-                    "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-        }, 200);
+        // FIX: Only reset the button to IDLE when NOT already connected.
+        // Previously this was unconditional — if the user tapped "← BACK TO APP"
+        // after a successful "Save & Connect", the button was reset to IDLE and
+        // the 200ms-delayed UI refresh could briefly race against the poll timer,
+        // sometimes showing "Disconnected" for one tick before recovering.
+        // We also call __pvpmUiRefresh immediately (no delay) so the connected
+        // state is painted before the overlay finishes hiding.
+        if (bridge == null || !bridge.isSessionVerified()) {
+            setConnectButtonState(ConnectState.IDLE);
+        }
+        if (uiWebView != null) {
+            uiWebView.evaluateJavascript(
+                "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+        }
     }
 
     private boolean handleLoginUrl(String url) {
@@ -544,10 +549,18 @@ public class MainActivity extends AppCompatActivity {
     public void injectUserScript(WebView view) {
         try {
             InputStream is = getAssets().open("pvp_manager.js");
-            byte[] buf = new byte[is.available()];
-            is.read(buf);
+            // FIX: InputStream.available() is unreliable for asset streams and may
+            // return fewer bytes than the file length. A single read() also does not
+            // guarantee filling the buffer. Use a ByteArrayOutputStream loop to read
+            // the entire file regardless of how many chunks the OS delivers.
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int n;
+            while ((n = is.read(chunk)) != -1) {
+                baos.write(chunk, 0, n);
+            }
             is.close();
-            String script = new String(buf, StandardCharsets.UTF_8);
+            String script = baos.toString(StandardCharsets.UTF_8.name());
             view.evaluateJavascript("(function(){\n" + script + "\n})();", null);
         } catch (IOException e) {
             Log.e("PvPManager", "injectUserScript: " + e.getMessage());
