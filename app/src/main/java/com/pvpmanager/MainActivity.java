@@ -34,17 +34,18 @@ import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends AppCompatActivity {
 
+    // PvP page the bot always navigates to
+    private static final String PVP_URL = "https://demonicscans.org/pvp.php";
+
     public static WebView gameWebView;
     public static WebView uiWebView;
 
-    private WebView       loginWebView;
-    private FrameLayout   loginContainer;
-    private TextView      btnSaveConnect;
+    private WebView     loginWebView;
+    private FrameLayout loginContainer;
+    private TextView    btnSaveConnect;
     private AndroidBridge bridge;
 
-    // -------------------------------------------------------------------------
-    // FIX (Problem 5): Runtime permission launcher for POST_NOTIFICATIONS
-    // -------------------------------------------------------------------------
+    // Runtime permission launcher for POST_NOTIFICATIONS (Android 13+)
     private ActivityResultLauncher<String> notificationPermissionLauncher;
 
     @Override
@@ -53,44 +54,37 @@ public class MainActivity extends AppCompatActivity {
         WebView.setWebContentsDebuggingEnabled(true);
         CookieManager.getInstance().setAcceptCookie(true);
 
-        // Register notification permission launcher before any UI setup
         notificationPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),
-            granted -> {
-                if (!granted) {
-                    Log.w("PvPManager", "Notification permission denied");
-                }
-            });
+            granted -> Log.d("PvPManager", "POST_NOTIFICATIONS granted=" + granted));
 
         FrameLayout root = new FrameLayout(this);
         root.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        // ---------- Game WebView (hidden 0x0 — runs bot logic) ----------
+        // ── Hidden game WebView (0×0 — runs bot logic) ───────────────────────
         gameWebView = new WebView(this);
         gameWebView.setLayoutParams(new FrameLayout.LayoutParams(0, 0));
         applyWebViewSettings(gameWebView, false);
         CookieManager.getInstance().setAcceptThirdPartyCookies(gameWebView, true);
 
         gameWebView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest r) { return false; }
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) { return false; }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) { return false; }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, String url)          { return false; }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
-                if (bridge != null) bridge.appendLog("debug", "gameWebView: " + url);
+                if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
                 verifyGameWebViewSession(url);
                 injectUserScript(view);
             }
         });
         root.addView(gameWebView);
 
-        // ---------- UI WebView ----------
+        // ── Visible UI WebView ────────────────────────────────────────────────
         uiWebView = new WebView(this);
         uiWebView.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -101,15 +95,13 @@ public class MainActivity extends AppCompatActivity {
         bridge = new AndroidBridge(this, gameWebView, uiWebView);
         uiWebView.addJavascriptInterface(bridge, "Android");
         uiWebView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest r) { return false; }
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) { return false; }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) { return false; }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, String url)          { return false; }
         });
         uiWebView.loadUrl("file:///android_asset/main.html");
         root.addView(uiWebView);
 
-        // ---------- Login Overlay ----------
+        // ── Login Overlay ─────────────────────────────────────────────────────
         loginContainer = new FrameLayout(this);
         loginContainer.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -124,7 +116,7 @@ public class MainActivity extends AppCompatActivity {
         loginContainer.addView(navBar, navP);
 
         loginWebView = new WebView(this);
-        int navH = (int) (56 * getResources().getDisplayMetrics().density);
+        int navH = dp(56);
         FrameLayout.LayoutParams wvP = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT);
@@ -145,43 +137,37 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
-                updateSaveConnectLabel(url);
+                // Reset button only when NOT already connected
+                if (bridge != null && !bridge.isSessionVerified()) {
+                    setConnectButtonState(ConnectState.IDLE);
+                }
             }
         });
-
         loginWebView.loadUrl("about:blank");
         loginContainer.addView(loginWebView, wvP);
         root.addView(loginContainer);
         setContentView(root);
 
-        gameWebView.loadUrl("https://demonicscans.org/pvp.php");
+        // Load the game page immediately so cookies are attempted on first run
+        gameWebView.loadUrl(PVP_URL);
 
         // Start foreground service
         Intent svcIntent = new Intent(this, PvpService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(svcIntent);
-        } else {
-            startService(svcIntent);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svcIntent);
+        else startService(svcIntent);
 
-        // FIX (Problem 5): Request runtime permissions after UI is ready
         requestRuntimePermissions();
     }
 
-    // -------------------------------------------------------------------------
-    // FIX (Problem 5): Runtime permission requests
-    // -------------------------------------------------------------------------
+    // ── Runtime permissions ───────────────────────────────────────────────────
+
     private void requestRuntimePermissions() {
-        // 1. POST_NOTIFICATIONS — Android 13+ (API 33)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
             }
         }
-
-        // 2. Battery optimisation — prompt to disable so the service survives
-        //    Do this with a short delay so the app UI is fully visible first
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try {
                 android.os.PowerManager pm =
@@ -198,9 +184,9 @@ public class MainActivity extends AppCompatActivity {
         }, 3000);
     }
 
-    // -------------------------------------------------------------------------
-    // LOGIN OVERLAY
-    // -------------------------------------------------------------------------
+    // ── Login overlay nav bar ─────────────────────────────────────────────────
+
+    private enum ConnectState { IDLE, SUCCESS, FAILURE }
 
     private LinearLayout buildLoginNavBar() {
         LinearLayout bar = new LinearLayout(this);
@@ -209,7 +195,7 @@ public class MainActivity extends AppCompatActivity {
         bar.setBackgroundColor(Color.parseColor("#1a1025"));
         bar.setPadding(dp(12), dp(8), dp(12), dp(8));
 
-        // BACK always returns to the app UI — no webview history navigation
+        // BACK always closes the overlay and returns to the app UI
         TextView back = pillButton("← BACK TO APP", Color.parseColor("#2d2040"));
         back.setOnClickListener(v -> closeLoginOverlay());
         LinearLayout.LayoutParams backP = new LinearLayout.LayoutParams(
@@ -232,33 +218,37 @@ public class MainActivity extends AppCompatActivity {
         return bar;
     }
 
-    /** Called by the loginWebView's onPageFinished — resets the button if user navigates away. */
-    private void updateSaveConnectLabel(String url) {
-        if (btnSaveConnect == null) return;
-        // Only reset to default if we are NOT already in the "Connected" state,
-        // so a page navigation after a successful connect doesn't wipe the green button.
-        if (bridge != null && bridge.isSessionVerified()) return;
-        setConnectButtonState(false);
-    }
-
-    private void setConnectButtonState(boolean connected) {
+    private void setConnectButtonState(ConnectState state) {
         if (btnSaveConnect == null) return;
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(24));
-        if (connected) {
-            bg.setColor(Color.parseColor("#2E7D32"));
-            btnSaveConnect.setText("✓ CONNECTED");
-            btnSaveConnect.setEnabled(false);   // prevent double-tap
-        } else {
-            bg.setColor(Color.parseColor("#00897B"));
-            btnSaveConnect.setText("SAVE & CONNECT");
-            btnSaveConnect.setEnabled(true);
+        switch (state) {
+            case SUCCESS:
+                bg.setColor(Color.parseColor("#2E7D32"));
+                btnSaveConnect.setText("✓ CONNECTED");
+                btnSaveConnect.setEnabled(false);
+                break;
+            case FAILURE:
+                bg.setColor(Color.parseColor("#B71C1C"));
+                btnSaveConnect.setText("✗ NOT LOGGED IN");
+                btnSaveConnect.setEnabled(true);
+                // Auto-reset after 2.5s
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> setConnectButtonState(ConnectState.IDLE), 2500);
+                break;
+            default: // IDLE
+                bg.setColor(Color.parseColor("#00897B"));
+                btnSaveConnect.setText("SAVE & CONNECT");
+                btnSaveConnect.setEnabled(true);
+                break;
         }
         btnSaveConnect.setBackground(bg);
     }
 
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
+        // Reset button to IDLE whenever the overlay opens
+        setConnectButtonState(ConnectState.IDLE);
         loginContainer.setVisibility(View.VISIBLE);
         loginWebView.requestFocus();
         String cur = loginWebView.getUrl();
@@ -268,10 +258,18 @@ public class MainActivity extends AppCompatActivity {
         if (bridge != null) bridge.appendLog("system", "Login overlay opened");
     }
 
-    // -------------------------------------------------------------------------
-    // Save & Connect — stays on the overlay, updates button to ✓ CONNECTED.
-    // User taps "← BACK TO APP" manually when ready.
-    // -------------------------------------------------------------------------
+    // ── Save & Connect ────────────────────────────────────────────────────────
+    //
+    // New flow:
+    //  1. Verify the loginWebView URL + cookies
+    //  2. Mark connected (prefs, grace period)
+    //  3. Copy localStorage from loginWebView → gameWebView (for token-based auth)
+    //  4. Load PVP_URL directly in gameWebView (NOT reload — reload would replay
+    //     whatever redirect URL it's currently sitting on)
+    //  5. Button shows ✓ CONNECTED — overlay stays open
+    //  6. User taps "← BACK TO APP" when ready
+    // ─────────────────────────────────────────────────────────────────────────
+
     public void saveConnect() {
         if (bridge == null || loginWebView == null) {
             Toast.makeText(this, "Not ready — try again", Toast.LENGTH_SHORT).show();
@@ -282,8 +280,9 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().flush();
 
         String currentUrl = loginWebView.getUrl();
+        bridge.appendLog("debug", "loginWebView URL: " + currentUrl);
 
-        // PRIMARY CHECK: URL on the site and not on a login/auth page
+        // Primary check — URL is on the site and NOT on an auth page
         boolean urlOk = currentUrl != null
                 && currentUrl.contains("demonicscans.org")
                 && !currentUrl.contains("signin")
@@ -291,129 +290,199 @@ public class MainActivity extends AppCompatActivity {
                 && !currentUrl.contains("register")
                 && !currentUrl.equals("about:blank");
 
-        // SECONDARY CHECK: any cookies present for the domain
+        // Secondary check — any cookies set for the domain
         String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-        boolean hasCookies = cookies != null && cookies.trim().length() > 0;
+        boolean hasCookies = cookies != null && !cookies.trim().isEmpty();
 
-        bridge.appendLog("debug", "saveConnect: urlOk=" + urlOk
-                + " hasCookies=" + hasCookies
+        bridge.appendLog("debug", "urlOk=" + urlOk + " hasCookies=" + hasCookies
                 + " cookieLen=" + (cookies == null ? 0 : cookies.length()));
 
         if (!urlOk && !hasCookies) {
-            // Not logged in — show failure on the button and a toast
+            // Hard failure — not on site or no cookies at all
+            setConnectButtonState(ConnectState.FAILURE);
             Toast.makeText(this,
                 "Please log in on the site first, then tap Save & Connect",
                 Toast.LENGTH_LONG).show();
-            // Flash the button red briefly so the user sees the failure
-            if (btnSaveConnect != null) {
-                GradientDrawable errBg = new GradientDrawable();
-                errBg.setCornerRadius(dp(24));
-                errBg.setColor(Color.parseColor("#B71C1C"));
-                btnSaveConnect.setBackground(errBg);
-                btnSaveConnect.setText("✗ NOT LOGGED IN");
-                new Handler(Looper.getMainLooper()).postDelayed(
-                    () -> setConnectButtonState(false), 2500);
-            }
             return;
         }
 
-        // ── SUCCESS ─────────────────────────────────────────────────────────
-        // 1. Mark session as connected (synchronous commit)
+        // ── SUCCESS PATH ─────────────────────────────────────────────────────
+
+        // 1. Mark session connected (also starts the grace period inside AndroidBridge)
         bridge.setConnected(true);
-        bridge.appendLog("system", "Session saved ✓ — tap '← BACK TO APP' to return");
+        bridge.appendLog("system", "Session saved ✓ — syncing to game WebView…");
 
-        // 2. Update the button to show success — overlay stays open
-        setConnectButtonState(true);
+        // 2. Show the green connected button; overlay stays open
+        setConnectButtonState(ConnectState.SUCCESS);
 
-        // 3. Reload the hidden gameWebView in the background
-        if (gameWebView != null) {
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (gameWebView != null) gameWebView.reload();
-            }, 400);
-        }
+        // 3. Copy localStorage from loginWebView → gameWebView.
+        //    Modern sites may store auth tokens in localStorage rather than (or in
+        //    addition to) HTTP cookies. Since each WebView has its own JS context,
+        //    we must copy them explicitly.
+        syncLocalStorageToGameWebView(() -> {
+            // 4. Navigate gameWebView directly to PVP_URL (not reload — the current
+            //    URL might be a login-redirect and reload() would replay that redirect).
+            if (gameWebView != null) {
+                bridge.appendLog("debug", "Loading " + PVP_URL + " in gameWebView");
+                gameWebView.loadUrl(PVP_URL);
+            }
+        });
 
-        // 4. Refresh the app UI in the background so it's ready when user returns
+        // 5. Refresh the app UI in the background so it shows Connected immediately
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
                     "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
-        }, 1500);
+        }, 500);
     }
 
-    // -------------------------------------------------------------------------
-    // FIX (Problem 4): Session verification — URL-primary, no timer
-    // Only clears session on strong evidence (explicit redirect to auth page).
-    // -------------------------------------------------------------------------
-    private void verifyGameWebViewSession(String finalUrl) {
+    /**
+     * Reads all localStorage keys/values from loginWebView and injects them
+     * into gameWebView. Calls {@code onDone} on the main thread when finished.
+     * Safe to call even if gameWebView hasn't loaded a page yet — it just
+     * stores them for when the next page loads from the same origin.
+     */
+    private void syncLocalStorageToGameWebView(Runnable onDone) {
+        if (loginWebView == null) { if (onDone != null) onDone.run(); return; }
+
+        loginWebView.evaluateJavascript(
+            "(function(){" +
+            "  try {" +
+            "    var out = {};" +
+            "    for (var i = 0; i < localStorage.length; i++) {" +
+            "      var k = localStorage.key(i);" +
+            "      out[k] = localStorage.getItem(k);" +
+            "    }" +
+            "    return JSON.stringify(out);" +
+            "  } catch(e) { return '{}'; }" +
+            "})()",
+            raw -> {
+                if (raw == null || raw.equals("null") || raw.equals("\"{}\"") || raw.equals("{}")) {
+                    bridge.appendLog("debug", "localStorage empty or unreadable");
+                    if (onDone != null) new Handler(Looper.getMainLooper()).post(onDone);
+                    return;
+                }
+
+                // raw is a JSON-encoded string (double-quoted). Unwrap it.
+                String json = raw;
+                if (json.startsWith("\"") && json.endsWith("\"")) {
+                    json = json.substring(1, json.length() - 1)
+                               .replace("\\\"", "\"")
+                               .replace("\\\\", "\\")
+                               .replace("\\/",  "/");
+                }
+
+                bridge.appendLog("debug", "Syncing localStorage (" + json.length() + " chars) → gameWebView");
+
+                final String finalJson = json;
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    if (gameWebView != null) {
+                        String injectJs =
+                            "(function(raw){" +
+                            "  try {" +
+                            "    var obj = JSON.parse(raw);" +
+                            "    for (var k in obj) {" +
+                            "      if (obj.hasOwnProperty(k)) localStorage.setItem(k, obj[k]);" +
+                            "    }" +
+                            "  } catch(e) {}" +
+                            "})('" + finalJson.replace("'", "\\'") + "');";
+                        gameWebView.evaluateJavascript(injectJs, v2 -> {
+                            if (bridge != null)
+                                bridge.appendLog("debug", "localStorage sync done");
+                            if (onDone != null) onDone.run();
+                        });
+                    } else {
+                        if (onDone != null) onDone.run();
+                    }
+                });
+            });
+    }
+
+    // ── Session verification ──────────────────────────────────────────────────
+    //
+    // Called every time gameWebView finishes loading a page.
+    //
+    // Rules:
+    //  • ONLY call setConnected(false) on an explicit auth-page redirect.
+    //  • NEVER clear the session during the grace period after saveConnect().
+    //  • Positive confirmation (on-site + cookies) auto-sets Connected if not
+    //    already set (handles cold-start when the user was previously logged in).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void verifyGameWebViewSession(String url) {
         if (gameWebView == null || bridge == null) return;
 
-        // STRONG NEGATIVE: explicit redirect to an auth/registration page
-        boolean onAuthPage = finalUrl != null && (
-                finalUrl.contains("/signin") || finalUrl.contains("/login") ||
-                finalUrl.contains("/register") || finalUrl.contains("/signup"));
+        // ── Within grace period — don't touch the session ────────────────────
+        if (bridge.inGracePeriod()) {
+            bridge.appendLog("debug", "Grace period active — skipping session verify for: " + url);
+            return;
+        }
+
+        // ── Explicit auth-page redirect = definite sign-out ──────────────────
+        boolean onAuthPage = url != null && (
+                url.contains("/signin") || url.contains("/login") ||
+                url.contains("/register") || url.contains("/signup"));
 
         if (onAuthPage) {
-            bridge.appendLog("warning", "Redirected to auth page — session cleared");
+            bridge.appendLog("warning", "Redirected to auth page — clearing session: " + url);
             bridge.setConnected(false);
             return;
         }
 
-        // PRIMARY POSITIVE: URL on demonicscans.org, not on an auth page,
-        //                   AND cookies exist (confirms the browser is carrying a session)
-        boolean urlOnSite = finalUrl != null && finalUrl.contains("demonicscans.org");
+        // ── Positive: on-site + cookies → connected ───────────────────────────
+        boolean onSite = url != null && url.contains("demonicscans.org");
         CookieManager.getInstance().flush();
         String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
-        boolean hasCookies = cookies != null && cookies.trim().length() > 0;
+        boolean hasCookies = cookies != null && !cookies.trim().isEmpty();
 
-        if (urlOnSite && hasCookies) {
+        if (onSite && hasCookies) {
             if (!bridge.isSessionVerified()) {
-                bridge.appendLog("system", "✅ Session confirmed");
+                bridge.appendLog("system", "✅ Session confirmed via URL + cookies");
                 bridge.setConnected(true);
             }
             return;
         }
 
-        // SECONDARY POSITIVE: check for PvP UI elements in the DOM
-        if (urlOnSite) {
-            String js = "(function(){" +
-                "try{" +
-                "  var hasPvpEl = !!(document.getElementById('stat-tokens') ||" +
-                "    document.querySelector('[id*=\"pvp\"], [class*=\"pvp\"],' +" +
-                "      '[id*=\"player\"], [id*=\"user-info\"]'));" +
-                "  var hasTokens = !!(document.getElementById('user-tokens') ||" +
-                "    document.querySelector('[class*=\"token\"]'));" +
-                "  return JSON.stringify({pvp: hasPvpEl, tokens: hasTokens});" +
-                "}catch(e){return JSON.stringify({err:e.message});}" +
+        // ── Uncertain (on-site but no cookies yet) — check DOM ───────────────
+        if (onSite) {
+            String js =
+                "(function(){" +
+                "  try {" +
+                "    var loggedIn =" +
+                "      !!document.querySelector('[class*=\"user\"], [id*=\"user\"]," +
+                "          [class*=\"profile\"], [class*=\"avatar\"]," +
+                "          [data-user], [id*=\"account\"]') ||" +
+                "      !!document.querySelector('a[href*=\"pvp\"], a[href*=\"profile\"]');" +
+                "    return loggedIn ? '1' : '0';" +
+                "  } catch(e) { return '0'; }" +
                 "})();";
             gameWebView.evaluateJavascript(js, result -> {
                 if (bridge == null) return;
-                boolean domPositive = result != null &&
-                        (result.contains("\"pvp\":true") || result.contains("\"tokens\":true"));
-                if (domPositive && !bridge.isSessionVerified()) {
+                if ("\"1\"".equals(result) && !bridge.isSessionVerified()) {
                     bridge.appendLog("system", "✅ Session confirmed via DOM");
                     bridge.setConnected(true);
-                } else if (!domPositive) {
-                    bridge.appendLog("debug", "Session uncertain — no strong signal");
-                    // Do NOT clear session on uncertainty — only auth-page redirect does that
+                } else {
+                    bridge.appendLog("debug", "Session uncertain (no cookies, dom=" + result + ") — not clearing");
+                    // Do NOT clear — only explicit auth-page redirect clears
                 }
             });
         }
     }
 
-    // -------------------------------------------------------------------------
-    // HELPERS
-    // -------------------------------------------------------------------------
+    // ── Overlay helpers ───────────────────────────────────────────────────────
 
     private void closeLoginOverlay() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
         if (loginWebView != null) loginWebView.loadUrl("about:blank");
+        // Reset button so it's fresh next time the overlay opens
+        setConnectButtonState(ConnectState.IDLE);
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null)
                 uiWebView.evaluateJavascript(
                     "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-        }, 300);
+        }, 200);
     }
 
     private boolean handleLoginUrl(String url) {
@@ -431,6 +500,8 @@ public class MainActivity extends AppCompatActivity {
         }
         return true;
     }
+
+    // ── WebView settings ──────────────────────────────────────────────────────
 
     private void applyWebViewSettings(WebView wv, boolean fileAccess) {
         WebSettings s = wv.getSettings();
@@ -460,6 +531,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ── Misc helpers ──────────────────────────────────────────────────────────
+
     private TextView pillButton(String text, int bgColor) {
         TextView tv = new TextView(this);
         tv.setText(text);
@@ -480,8 +553,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        // If the login overlay is open, the hardware back button always returns to the app UI
-        // (same behaviour as the "← BACK TO APP" button in the nav bar)
+        // Hardware back key when overlay is open → always close overlay
         if (loginContainer != null && loginContainer.getVisibility() == View.VISIBLE) {
             closeLoginOverlay();
             return;
