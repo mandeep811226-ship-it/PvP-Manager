@@ -120,7 +120,18 @@ public class AndroidBridge {
         try {
             JSONObject state = new JSONObject();
 
+            // Cookie-backed session validation: if the flag says connected but cookies
+            // are gone (e.g. app was killed and session cookies were in-memory only),
+            // the server session is dead — auto-clear so the UI shows the real state.
             boolean connected = isSessionVerified();
+            if (connected) {
+                String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
+                if (cookies == null || cookies.trim().isEmpty()) {
+                    prefs.edit().remove(KEY_SESSION_VERIFIED).commit();
+                    connected = false;
+                    appendLog("system", "Session expired — cookies missing, marked disconnected");
+                }
+            }
             state.put("connected", connected);
 
             boolean running = prefs.getBoolean(KEY_RUNNING, false);
@@ -132,13 +143,24 @@ public class AndroidBridge {
             state.put("running", running);
 
             JSONObject config = new JSONObject();
-            config.put("debugLogs",     prefs.getBoolean(KEY_DEBUG_LOGS, false));
-            config.put("pollIntervalMs",
-                       Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")));
+            config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
+            int pollMs = 1500;
+            try { pollMs = Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")); }
+            catch (NumberFormatException ignored) {}
+            config.put("pollIntervalMs", pollMs);
             state.put("config", config);
 
-            String stratJson = prefs.getString(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
-            state.put("strategy", new JSONObject(stratJson));
+            // Guard strategy JSON — a malformed value must NOT crash the entire getState().
+            JSONObject strategy = null;
+            try {
+                String stratJson = prefs.getString(KEY_STRATEGY, null);
+                if (stratJson != null) strategy = new JSONObject(stratJson);
+            } catch (JSONException ignored) {
+                appendLog("warning", "Strategy JSON malformed — resetting");
+                prefs.edit().remove(KEY_STRATEGY).commit();
+            }
+            if (strategy == null) strategy = new JSONObject("{\"enabled\":false,\"entries\":[]}");
+            state.put("strategy", strategy);
 
             StringBuilder sb = new StringBuilder();
             synchronized (logLines) {
@@ -146,14 +168,23 @@ public class AndroidBridge {
             }
             state.put("logs", sb.toString());
 
+            // Guard cached_live_state JSON — a malformed value must NOT crash getState().
+            boolean liveLoaded = false;
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
-                JSONObject live = new JSONObject(cachedLive);
-                state.put("match",        live.optJSONObject("match")    != null ? live.getJSONObject("match")    : new JSONObject());
-                state.put("stats",        live.optJSONObject("stats")    != null ? live.getJSONObject("stats")    : new JSONObject());
-                state.put("skillList",    live.optJSONArray("skillList") != null ? live.getJSONArray("skillList") : new JSONArray());
-                state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
-            } else {
+                try {
+                    JSONObject live = new JSONObject(cachedLive);
+                    state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
+                    state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
+                    state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
+                    state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
+                    liveLoaded = true;
+                } catch (JSONException ignored) {
+                    appendLog("warning", "cached_live_state malformed — clearing");
+                    prefs.edit().remove("cached_live_state").commit();
+                }
+            }
+            if (!liveLoaded) {
                 state.put("match",        new JSONObject("{\"active\":false}"));
                 state.put("stats",        new JSONObject());
                 state.put("skillList",    new JSONArray());
@@ -164,7 +195,8 @@ public class AndroidBridge {
 
         } catch (JSONException e) {
             Log.e("PvPManager", "getState error: " + e.getMessage());
-            return "{\"error\":\"" + e.getMessage() + "\"}";
+            // Always return a valid JSON with connected so tick() never shows a false Disconnected.
+            return "{\"connected\":false,\"running\":false,\"error\":\"" + e.getMessage() + "\"}";
         }
     }
 
