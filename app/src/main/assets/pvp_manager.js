@@ -1336,6 +1336,12 @@
     }
 
     function addHistoryEntry(entry) {
+        // Compute pointsDelta so Android UI can display +/- correctly
+        if (entry.pointsBefore != null && entry.pointsAfter != null) {
+            entry.pointsDelta = entry.pointsAfter - entry.pointsBefore;
+        } else {
+            entry.pointsDelta = 0;
+        }
         matchHistory.push(entry);
         if (matchHistory.length > historyLimit) matchHistory.shift();
         persistHistory();
@@ -3650,7 +3656,28 @@
                     enemyAvatarUrl:  hpBarEnemyAvatarUrl || null
                 },
                 skillList:    (typeof scrapeSkillList === 'function' ? scrapeSkillList() : skillList) || [],
-                matchHistory: matchHistory || []
+                matchHistory: matchHistory || [],
+                gameLogs: (function() {
+                    try {
+                        var lines = [];
+                        var entries = logHistory || [];
+                        var base = Date.now();
+                        for (var i = 0; i < entries.length; i++) {
+                            var e = entries[i];
+                            var plain = typeof e === 'string' ? e : (e.plain || '');
+                            var type = 'info';
+                            if (e && e.color) {
+                                var c = String(e.color).toLowerCase();
+                                if (c === '#66bb6a' || c === '#4caf50' || c.indexOf('green') !== -1) type = 'win';
+                                else if (c === '#ef5350' || c === '#f44336' || c.indexOf('red') !== -1) type = 'loss';
+                                else if (c === '#fb923c' || c.indexOf('orange') !== -1) type = 'warning';
+                                else if (c === '#60a5fa' || c.indexOf('blue') !== -1) type = 'debug';
+                            }
+                            lines.push((base - entries.length + i) + '|' + type + '|' + plain);
+                        }
+                        return lines.join('\n');
+                    } catch(ex) { return ''; }
+                })()
             };
         } catch (e) {
             return { stats: {}, match: { active: false }, skillList: [], matchHistory: [] };
