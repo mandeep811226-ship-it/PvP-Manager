@@ -38,6 +38,19 @@ public class AndroidBridge {
     private static final int LOG_MAX_ENTRIES = 500;
     private final java.util.ArrayDeque<String> logLines = new java.util.ArrayDeque<>();
 
+    // ── BLS reverse-sync (gameWebView localStorage → SharedPreferences) ───────
+    // Runs every BLS_SYNC_INTERVAL_MS ms so the history expand panel always
+    // reflects the freshest data pvp_manager.js has written during matches.
+    private static final int    BLS_SYNC_INTERVAL_MS = 15_000; // 15 s
+    private volatile     String lastBlsSnapshot      = null;   // change detection
+
+    private final Runnable blsSyncRunnable = new Runnable() {
+        @Override public void run() {
+            performBlsSync();
+            mainHandler.postDelayed(this, BLS_SYNC_INTERVAL_MS);
+        }
+    };
+
     private final Context           context;
     private final WebView           gameWebView;
     private final WebView           uiWebView;
@@ -50,11 +63,80 @@ public class AndroidBridge {
         this.uiWebView   = uiWebView;
         this.prefs       = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         this.mainHandler = new Handler(Looper.getMainLooper());
+        // Start BLS reverse-sync after an initial delay so the game WebView has
+        // time to load pvp_manager.js and populate localStorage.bls_memory.
+        mainHandler.postDelayed(blsSyncRunnable, BLS_SYNC_INTERVAL_MS);
     }
 
-    // ── Keepalive stubs ───────────────────────────────────────────────────────
+    // ── Keepalive / BLS sync lifecycle ───────────────────────────────────────
     public void startKeepalive() {}
-    public void stopKeepalive()  {}
+
+    public void stopKeepalive() {
+        mainHandler.removeCallbacks(blsSyncRunnable);
+    }
+
+    /**
+     * Reads localStorage.bls_memory from the game WebView and writes it into
+     * SharedPreferences (KEY_BLS_MEMORY) if the content has changed.
+     *
+     * This closes the reverse-sync gap: pvp_manager.js writes live combat stats
+     * (DMG, RET, CRIT, CLASS, HP) into the game WebView's localStorage during
+     * every match. Without this method those updates would never reach
+     * Android.getBlsMemory(), so the history expand panel would always show
+     * stale or empty values.
+     *
+     * Safety guarantees:
+     *  - Must run on the main thread (enforced by blsSyncRunnable → mainHandler).
+     *  - JS evaluates JSON.parse internally, so only valid objects are returned.
+     *  - Double-gated with lastBlsSnapshot (in-memory) and SharedPreferences
+     *    comparison — zero writes when nothing has changed.
+     *  - Empty ({}) and null results are silently ignored.
+     *  - Any JSONException from the Java-side validation is also silently ignored.
+     */
+    private void performBlsSync() {
+        if (gameWebView == null) return;
+        // The JS returns a parsed object (not a raw string), so evaluateJavascript
+        // delivers it as a plain JSON string (no outer quotes, no escaping needed).
+        gameWebView.evaluateJavascript(
+            "(function(){" +
+            "  try {" +
+            "    var raw = localStorage.getItem('bls_memory');" +
+            "    if (!raw) return null;" +
+            "    var obj = JSON.parse(raw);" +
+            "    if (!obj || typeof obj !== 'object') return null;" +
+            "    if (Object.keys(obj).length === 0) return null;" +
+            "    return obj;" +
+            "  } catch(e) { return null; }" +
+            "})()",
+            value -> {
+                if (value == null || value.equals("null") || value.trim().isEmpty()) return;
+
+                // Java-side validation: must parse as a JSONObject
+                try { new JSONObject(value); } catch (JSONException e) {
+                    Log.w("PvPManager", "blsSync: invalid JSON — skipped (" + e.getMessage() + ")");
+                    return;
+                }
+
+                // Change detection — skip write if identical to last snapshot
+                if (value.equals(lastBlsSnapshot)) return;
+                lastBlsSnapshot = value;
+
+                // Skip write if SharedPreferences already has this data
+                String stored = prefs.getString(KEY_BLS_MEMORY, "{}");
+                if (value.equals(stored)) return;
+
+                prefs.edit().putString(KEY_BLS_MEMORY, value).apply();
+                Log.d("PvPManager", "blsSync: synced " + value.length() +
+                      " bytes → SharedPreferences (" +
+                      (try_count_keys(value)) + " players)");
+            }
+        );
+    }
+
+    /** Best-effort player count for the log message — never throws. */
+    private int try_count_keys(String json) {
+        try { return new JSONObject(json).length(); } catch (Exception e) { return -1; }
+    }
 
     // ── Session ───────────────────────────────────────────────────────────────
     public void setConnected(boolean connected) {
