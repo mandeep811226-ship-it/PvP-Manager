@@ -514,22 +514,57 @@ public class MainActivity extends AppCompatActivity {
             "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
     }
 
-    public void injectUserScript(WebView view) {
-        try {
-            InputStream is = getAssets().open("pvp_manager.js");
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+public void injectUserScript(WebView view) {
+
+    try {
+
+        StringBuilder combined = new StringBuilder();
+
+        String[] scripts = {
+            "pvp_manager.js",
+            "pvp_stats_display.js"
+        };
+
+        for (String file : scripts) {
+
+            InputStream is = getAssets().open(file);
+
+            java.io.ByteArrayOutputStream baos =
+                    new java.io.ByteArrayOutputStream();
+
             byte[] chunk = new byte[8192];
+
             int n;
+
             while ((n = is.read(chunk)) != -1) {
                 baos.write(chunk, 0, n);
             }
+
             is.close();
-            String script = baos.toString(StandardCharsets.UTF_8.name());
-            view.evaluateJavascript("(function(){\n" + script + "\n})();", null);
-        } catch (IOException e) {
-            Log.e("PvPManager", "injectUserScript: " + e.getMessage());
+
+            combined.append("\n");
+            combined.append(
+                    baos.toString(StandardCharsets.UTF_8.name())
+            );
+            combined.append("\n");
         }
+
+        view.evaluateJavascript(
+                "(function(){\n" +
+                        combined.toString() +
+                        "\n})();",
+                null
+        );
+
+        Log.d("PvPManager", "Injected all scripts successfully");
+
+    } catch (IOException e) {
+
+        Log.e("PvPManager",
+                "injectUserScript error: " + e.getMessage());
+
     }
+}
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
