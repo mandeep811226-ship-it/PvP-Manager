@@ -131,6 +131,38 @@
   .setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
   .settings-section-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:4px 0 6px}
 
+  /* ── BATTLE STAT ROWS ── */
+  #battle-stats-wrap{display:flex;flex-direction:column;background:var(--bg2);border-bottom:1px solid var(--gold-border);flex-shrink:0}
+  .bsr-row{display:flex;align-items:center;gap:3px;padding:5px 10px;border-bottom:1px solid rgba(255,255,255,0.04)}
+  .bsr-row:last-child{border-bottom:none}
+  .bsr-side{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:34px;flex-shrink:0}
+  .bsr-side.you{color:#22c55e}.bsr-side.enemy{color:#ef5350}
+  .bsr-stat{display:flex;align-items:center;gap:3px;flex:1;min-width:0}
+  .bsr-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+  .bsr-val{font-size:10px;font-weight:700;color:var(--gold);white-space:nowrap}
+  .bsr-val.na{color:var(--muted);font-weight:400}
+  .bsr-sep{width:1px;height:12px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 1px}
+
+  /* ── HISTORY SEARCH ── */
+  #history-search{background:var(--bg2);border:1px solid var(--gold-border);border-radius:8px;color:var(--text);padding:7px 12px;font-size:12px;font-family:var(--font);outline:none;width:100%;box-sizing:border-box}
+  #history-search:focus{border-color:var(--gold)}
+
+  /* ── COLLAPSIBLE PLAYER STATS ── */
+  .match-expand-btn{background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:4px;color:var(--muted);font-size:10px;padding:1px 6px;cursor:pointer;font-family:var(--font);flex-shrink:0;align-self:center;line-height:1.4}
+  .match-expand-btn.open{color:var(--gold);border-color:var(--gold-border)}
+  .match-bls-stats{margin-top:6px;padding:7px 9px;background:var(--bg3);border-radius:7px;border:1px solid rgba(255,255,255,0.07);display:none}
+  .match-bls-stats.open{display:block}
+  .bls-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px}
+  .bls-item{display:flex;gap:4px;align-items:center;font-size:10px}
+  .bls-item-label{color:var(--muted);min-width:36px}
+  .bls-item-val{color:var(--text);font-weight:600}
+  .bls-class-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:5px}
+  .bls-class-badge.mage{background:rgba(239,68,68,0.2);color:#f87171}
+  .bls-class-badge.warrior{background:rgba(251,146,60,0.2);color:#fb923c}
+  .bls-class-badge.cleric{background:rgba(96,165,250,0.2);color:#60a5fa}
+  .bls-class-badge.hunter{background:rgba(34,197,94,0.2);color:#4ade80}
+  .bls-source{font-size:9px;color:var(--muted);margin-top:4px}
+
   /* ── TOAST ── */
   #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg3);border:1px solid var(--gold-border);color:var(--text);padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:999;pointer-events:none;white-space:nowrap}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -151,6 +183,7 @@
     <span id="conn-label">Disconnected</span>
     <div class="spacer"></div>
     <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
+    <button class="btn btn-ghost" id="btn-refresh" onclick="doRefreshStats()" title="Refresh stats" style="padding:6px 9px;font-size:14px;line-height:1">↻</button>
     <!-- FIX (Problem 2): Login is the dominant CTA — full-width, gold when disconnected -->
     <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Sign In</button>
   </div>
@@ -188,6 +221,40 @@
       <div id="hp-enemy-fill" style="width:50%;background:linear-gradient(90deg,#f87171,#ef5350);margin-left:auto"></div>
     </div>
     <div class="hp-labels"><span id="ally-hp-pct">50%</span><span id="enemy-hp-pct">50%</span></div>
+  </div>
+
+  <!-- BATTLE STAT ROWS: Player stats + Enemy stats above tabs -->
+  <div id="battle-stats-wrap">
+    <div class="bsr-row" id="bsr-you">
+      <span class="bsr-side you">You</span>
+      <div class="bsr-stat"><span class="bsr-label">ATK</span><span class="bsr-val na" id="bsr-you-atk">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">DEF</span><span class="bsr-val na" id="bsr-you-def">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">DMG</span><span class="bsr-val na" id="bsr-you-dmg">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">RET</span><span class="bsr-val na" id="bsr-you-ret">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">Crit</span><span class="bsr-val na" id="bsr-you-crit">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">Turn</span><span class="bsr-val na" id="bsr-you-turn">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">Pace</span><span class="bsr-val na" id="bsr-you-pace">—</span></div>
+    </div>
+    <div class="bsr-row" id="bsr-enemy">
+      <span class="bsr-side enemy">Foe</span>
+      <div class="bsr-stat"><span class="bsr-label">ATK</span><span class="bsr-val na" id="bsr-en-atk">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">DEF</span><span class="bsr-val na" id="bsr-en-def">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">DMG</span><span class="bsr-val na" id="bsr-en-dmg">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">RET</span><span class="bsr-val na" id="bsr-en-ret">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">Crit</span><span class="bsr-val na" id="bsr-en-crit">—</span></div>
+      <div class="bsr-sep"></div>
+      <div class="bsr-stat"><span class="bsr-label">Class</span><span class="bsr-val na" id="bsr-en-class">—</span></div>
+    </div>
   </div>
 
   <div id="tab-bar">
@@ -230,8 +297,8 @@
 
     <!-- HISTORY -->
     <div class="tab-panel" id="panel-history">
+      <input id="history-search" type="text" placeholder="Search player name…" oninput="onHistorySearch(this.value)"/>
       <div id="history-list"></div>
-      <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="align-self:flex-start;margin-top:4px">Clear History</button>
     </div>
 
     <!-- SETTINGS -->
@@ -252,8 +319,28 @@
           </label>
         </div>
         <div class="setting-row">
+          <div><div class="setting-title">Clear History</div><div class="setting-sub">Remove all recorded match history</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="clearHistory()">Clear</button>
+        </div>
+        <div class="setting-row">
           <div><div class="setting-title">Reset W/L</div><div class="setting-sub">Clear win/loss counters and match history</div></div>
           <button class="btn btn-ghost btn-sm" onclick="doResetWL()">Reset</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="settings-section-label">PvP Stats Memory (BLS)</div>
+        <div class="setting-row">
+          <div><div class="setting-title">Export BLS Memory</div><div class="setting-sub">Download updated enemy stats database</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="doExportBLS()">Export</button>
+        </div>
+        <div class="setting-row">
+          <div><div class="setting-title">Import BLS Memory</div><div class="setting-sub">Load a previously exported stats file</div></div>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">Import<input type="file" accept=".json" style="display:none" onchange="doImportBLS(this)"/></label>
+        </div>
+        <div class="setting-row">
+          <div><div class="setting-title">Clear BLS Memory</div><div class="setting-sub">Wipe all remembered enemy stats</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="doClearBLS()">Clear</button>
         </div>
       </div>
 
@@ -298,6 +385,123 @@ var _stopStage       = 0;   // 0=idle, 1=first press (stop after match), 2=force
 // We compare a hash to avoid unnecessary DOM thrashing on every tick.
 var _lastLogHash  = '';
 var _lastHistLen  = -1;
+var _historySearch = '';  // live search filter
+
+// ── BLS MEMORY ──
+// bls_memory is stored in localStorage by the PvP Stats Display userscript.
+// Key = userId (string), value = { name, attackerScore, defenderScore,
+//   baseTargetDmg, baseDamageBack, critChance, playerClass, lastMatchId }
+function loadBLSMemory() {
+  try { return JSON.parse(localStorage.getItem('bls_memory') || '{}'); }
+  catch(e) { return {}; }
+}
+function saveBLSMemory(mem) {
+  try { localStorage.setItem('bls_memory', JSON.stringify(mem)); } catch(e) {}
+}
+function getBLSForUid(uid) {
+  if (!uid) return null;
+  var mem = loadBLSMemory();
+  return mem[String(uid)] || null;
+}
+function fmtBLS(val) {
+  if (val == null) return '—';
+  return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+function fmtCrit(val) {
+  if (val == null) return '—';
+  return (val * 100).toFixed(1) + '%';
+}
+var CLASS_EMOJI = { mage:'🔥', cleric:'✨', warrior:'⚔️', hunter:'🏹' };
+
+// ── BLS EXPORT / IMPORT / CLEAR ──
+function doExportBLS() {
+  var mem = loadBLSMemory();
+  var json = JSON.stringify(mem, null, 2);
+  var filename = 'bls_memory_' + Date.now() + '.json';
+  if (window.Android) {
+    try { Android.saveTextFile(filename, json); showToast('BLS memory exported'); return; } catch(e) {}
+  }
+  // fallback: data URI
+  var uri = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
+  var a = document.createElement('a');
+  a.href = uri; a.download = filename; a.click();
+  showToast('BLS memory exported');
+}
+function doImportBLS(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var incoming = JSON.parse(e.target.result);
+      var mem = loadBLSMemory();
+      var count = 0;
+      Object.keys(incoming).forEach(function(uid) {
+        var d = incoming[uid], cur = mem[uid] || {};
+        var fields = ['attackerScore','defenderScore','baseTargetDmg','baseDamageBack','critChance','playerClass','lastMatchId','name'];
+        fields.forEach(function(f){ if (d[f] != null) cur[f] = d[f]; });
+        mem[uid] = cur;
+        count++;
+      });
+      saveBLSMemory(mem);
+      showToast('Imported ' + count + ' player stats');
+      _lastHistLen = -1; // force re-render
+    } catch(err) { showToast('Import failed: invalid file'); }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+function doClearBLS() {
+  saveBLSMemory({});
+  showToast('BLS memory cleared');
+  _lastHistLen = -1;
+  updateBattleStatRows(null, null);
+}
+
+// ── BATTLE STAT ROWS ──
+// allyUid / enemyUid come from buildAndroidState's match object
+var _lastAllyUid  = null;
+var _lastEnemyUid = null;
+var _lastTurnBonus = null;
+var _lastGlobalPace = null;
+
+function updateBattleStatRows(allyUid, enemyUid) {
+  var youBLS   = allyUid  ? getBLSForUid(allyUid)  : null;
+  var enemyBLS = enemyUid ? getBLSForUid(enemyUid) : null;
+
+  function setRow(prefix, bls, turnBonus, globalPace) {
+    function setV(id, val, isCrit) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var v = isCrit ? fmtCrit(val) : fmtBLS(val);
+      el.textContent = v;
+      el.className = 'bsr-val' + (val == null ? ' na' : '');
+    }
+    setV(prefix+'-atk',  bls ? bls.attackerScore  : null);
+    setV(prefix+'-def',  bls ? bls.defenderScore  : null);
+    setV(prefix+'-dmg',  bls ? bls.baseTargetDmg  : null);
+    setV(prefix+'-ret',  bls ? bls.baseDamageBack : null);
+    setV(prefix+'-crit', bls ? bls.critChance     : null, true);
+    if (prefix === 'bsr-you') {
+      var turnEl = document.getElementById('bsr-you-turn');
+      var paceEl = document.getElementById('bsr-you-pace');
+      if (turnEl) { turnEl.textContent = turnBonus  != null ? ('x' + Number(turnBonus).toFixed(1))  : '—'; turnEl.className='bsr-val'+(turnBonus==null?' na':''); }
+      if (paceEl) { paceEl.textContent = globalPace != null ? ('x' + Number(globalPace).toFixed(1)) : '—'; paceEl.className='bsr-val'+(globalPace==null?' na':''); }
+    }
+    if (prefix === 'bsr-en') {
+      var clsEl = document.getElementById('bsr-en-class');
+      if (clsEl) {
+        var cls = bls ? bls.playerClass : null;
+        clsEl.textContent = cls ? ((CLASS_EMOJI[cls] || '') + ' ' + cls) : '—';
+        clsEl.className = 'bsr-val' + (cls ? '' : ' na');
+      }
+    }
+  }
+  setRow('bsr-you',   youBLS,   _lastTurnBonus, _lastGlobalPace);
+  setRow('bsr-en',    enemyBLS, null, null);
+}
+
+
 
 // FIX: Debug toggle — local value is authoritative after first init.
 // Poll loop may only SET it once (on first load). After that, only user
@@ -439,8 +643,15 @@ function applyState(s) {
     setText('enemy-hp-label', (m.enemyHp||0) + ' / ' + (m.enemyHpMax||0));
     if (m.allyAvatarUrl)  document.getElementById('ally-avatar').src  = m.allyAvatarUrl;
     if (m.enemyAvatarUrl) document.getElementById('enemy-avatar').src = m.enemyAvatarUrl;
+    // Update BLS stat rows with live uid data
+    _lastAllyUid  = m.allyUid  || null;
+    _lastEnemyUid = m.enemyUid || null;
+    _lastTurnBonus  = m.turnBonus   != null ? m.turnBonus   : _lastTurnBonus;
+    _lastGlobalPace = m.globalPace  != null ? m.globalPace  : _lastGlobalPace;
+    updateBattleStatRows(_lastAllyUid, _lastEnemyUid);
   } else {
     hpSec.classList.add('inactive');
+    updateBattleStatRows(_lastAllyUid, _lastEnemyUid);
   }
 
   if (s.skillList && s.skillList.length) _skillList = s.skillList;
@@ -495,15 +706,17 @@ function renderLogs(raw) {
   }
 
   var html = '';
-  // Oldest-first: iterate forward so new entries append at the bottom
-  var start = Math.max(0, lines.length - 500); // show latest 500 max
+  var start = Math.max(0, lines.length - 500);
   for (var i = start; i < lines.length; i++) {
     var parts = lines[i].split('|');
-    if (parts.length < 3) continue;
-    var ts   = parseInt(parts[0], 10);
-    var type = parts[1];
-    var msg  = parts.slice(2).join('|');
-    html += '<div class="log-entry">' +
+    var ts, type, color, msg;
+    if (parts.length >= 4) {
+      ts = parseInt(parts[0], 10); type = parts[1]; color = parts[2]; msg = parts.slice(3).join('|');
+    } else if (parts.length === 3) {
+      ts = parseInt(parts[0], 10); type = parts[1]; color = ''; msg = parts[2];
+    } else { continue; }
+    var rowStyle = color ? ' style="color:' + color + '"' : '';
+    html += '<div class="log-entry"' + rowStyle + '>' +
       '<span class="log-ts">'                       + esc(tsToHMS(ts)) + '</span>' +
       '<span class="log-badge ' + esc(type) + '">'  + esc(type)        + '</span>' +
       '<span class="log-msg">'                       + esc(msg)         + '</span>' +
@@ -573,43 +786,122 @@ function renderStrategyEntries(){
 // HISTORY
 // ============================================================
 function renderHistory(history){
-  if(history.length===_lastHistLen)return;
-  _lastHistLen=history.length;
-  var c=document.getElementById('history-list');
-  if(!history.length){c.innerHTML='<div class="empty-state">No matches recorded yet.</div>';return;}
-  var h='';
-  for(var i=history.length-1;i>=0;i--){
-    var m=history[i],en=m.enemy||{};
-    // pointsDelta: use stored value or compute from before/after
-    var d=(m.pointsDelta!=null)?m.pointsDelta:((m.pointsAfter!=null&&m.pointsBefore!=null)?(m.pointsAfter-m.pointsBefore):0);
-    var dc=d>=0?'pos':'neg',ds=(d>=0?'+':'')+d;
-    var rc=m.result==='win'?'win':m.result==='loss'?'loss':'tie';
-    var rl=m.result==='win'?'W':m.result==='loss'?'L':'T';
-    var ts=m.ts?new Date(m.ts):null;
-    var tsS=ts?(pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())):'';
-    // Normalize avatar URL to absolute
-    var avatarUrl=en.avatarUrl||'';
-    if(avatarUrl&&avatarUrl.indexOf('http')!==0)avatarUrl='https://demonicscans.org'+(avatarUrl.indexOf('/')===0?'':'/')+avatarUrl;
-    h+='<div class="match-row">';
-    if(avatarUrl){
-      h+='<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
-    }else{
-      h+='<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
-    }
-    h+='<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
-    // Enemy class/level/party row
-    var meta=[];
-    if(en.role)meta.push(esc(en.role));
-    if(en.level)meta.push('Lv.'+esc(String(en.level)));
-    if(en.party)meta.push('\u2694 '+esc(en.party));
-    if(meta.length)h+='<div class="match-meta" style="color:var(--gold)">'+meta.join(' · ')+'</div>';
-    h+='<div class="match-meta">'+esc(tsS);
-    if(m.matchId)h+=' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
-    if(en.uid)h+=' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
-    h+='</div></div><div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'\u2192'+(m.pointsAfter||0)+'</div></div>';
-    h+='<span class="result-badge '+rc+'">'+rl+'</span></div>';
+  var filter = (_historySearch || '').toLowerCase().trim();
+  // Only skip re-render if nothing changed AND no filter is active
+  if(!filter && history.length === _lastHistLen) return;
+  _lastHistLen = history.length;
+
+  var c = document.getElementById('history-list');
+  if (!history.length) { c.innerHTML = '<div class="empty-state">No matches recorded yet.</div>'; return; }
+
+  // Apply search filter
+  var filtered = [];
+  for (var fi = 0; fi < history.length; fi++) {
+    var hm = history[fi], hen = hm.enemy || {};
+    if (!filter || (hen.name || '').toLowerCase().indexOf(filter) !== -1) filtered.push(hm);
   }
-  c.innerHTML=h;
+  if (!filtered.length) { c.innerHTML = '<div class="empty-state">No results for "' + esc(filter) + '"</div>'; return; }
+
+  var blsMem = loadBLSMemory();
+  var h = '';
+  for (var i = filtered.length - 1; i >= 0; i--) {
+    var m = filtered[i], en = m.enemy || {};
+    var rowId = 'hr-' + i;
+    var d = (m.pointsDelta != null) ? m.pointsDelta : ((m.pointsAfter != null && m.pointsBefore != null) ? (m.pointsAfter - m.pointsBefore) : 0);
+    var dc = d >= 0 ? 'pos' : 'neg', ds = (d >= 0 ? '+' : '') + d;
+    var rc = m.result === 'win' ? 'win' : m.result === 'loss' ? 'loss' : 'tie';
+    var rl = m.result === 'win' ? 'W' : m.result === 'loss' ? 'L' : 'T';
+    var ts = m.ts ? new Date(m.ts) : null;
+    var tsS = ts ? (pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())) : '';
+    var avatarUrl = en.avatarUrl || '';
+    if (avatarUrl && avatarUrl.indexOf('http') !== 0) avatarUrl = 'https://demonicscans.org' + (avatarUrl.indexOf('/') === 0 ? '' : '/') + avatarUrl;
+
+    // BLS memory lookup for this enemy
+    var bls = en.uid ? (blsMem[String(en.uid)] || null) : null;
+    var hasBLS = bls && (bls.attackerScore != null || bls.defenderScore != null || bls.critChance != null);
+
+    h += '<div class="match-row">';
+    if (avatarUrl) {
+      h += '<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
+    } else {
+      h += '<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
+    }
+    h += '<div class="match-info">';
+    h += '<div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
+    var meta = [];
+    if (en.role)  meta.push(esc(en.role));
+    if (en.level) meta.push('Lv.'+esc(String(en.level)));
+    if (en.party) meta.push('\u2694 '+esc(en.party));
+    if (meta.length) h += '<div class="match-meta" style="color:var(--gold)">'+meta.join(' \u00b7 ')+'</div>';
+    h += '<div class="match-meta">'+esc(tsS);
+    if (m.matchId) h += ' \u00b7 <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
+    if (en.uid)    h += ' \u00b7 <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
+    h += '</div>';
+
+    // Collapsible BLS stats block
+    if (hasBLS) {
+      var blsId = 'bls-'+rowId;
+      var cls = bls.playerClass || null;
+      var classBadge = cls ? '<span class="bls-class-badge '+esc(cls)+'">'+(CLASS_EMOJI[cls]||'')+' '+esc(cls)+'</span>' : '';
+      h += '<div class="bls-grid">';
+      h += '<div class="bls-item"><span class="bls-item-label">ATK</span><span class="bls-item-val">'+fmtBLS(bls.attackerScore)+'</span></div>';
+      h += '<div class="bls-item"><span class="bls-item-label">DEF</span><span class="bls-item-val">'+fmtBLS(bls.defenderScore)+'</span></div>';
+      h += '<div class="bls-item"><span class="bls-item-label">DMG</span><span class="bls-item-val">'+fmtBLS(bls.baseTargetDmg)+'</span></div>';
+      h += '<div class="bls-item"><span class="bls-item-label">RET</span><span class="bls-item-val">'+fmtBLS(bls.baseDamageBack)+'</span></div>';
+      if (bls.critChance != null) h += '<div class="bls-item"><span class="bls-item-label">Crit</span><span class="bls-item-val">'+fmtCrit(bls.critChance)+'</span></div>';
+      h += '</div>';
+      if (classBadge) h += classBadge;
+      h += '</div>';
+      // Collapsible wrapper hidden by default; expand btn shown in meta row
+      h += '<div id="'+esc(blsId)+'" class="match-bls-stats"></div>';
+    } else {
+      h += '</div>';
+    }
+
+    h += '</div>';  // match-pts + result badge row
+    h += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">';
+    h += '<div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'\u2192'+(m.pointsAfter||0)+'</div></div>';
+    h += '<span class="result-badge '+rc+'">'+rl+'</span>';
+    if (hasBLS) {
+      h += '<button class="match-expand-btn" onclick="toggleHistoryBLS(this,\'bls-'+rowId+'\')">Stats \u25be</button>';
+    }
+    h += '</div>';
+    h += '</div>';
+  }
+  c.innerHTML = h;
+}
+
+function toggleHistoryBLS(btn, blsId) {
+  var panel = document.getElementById(blsId);
+  if (!panel) return;
+  var isOpen = panel.classList.contains('open');
+  if (isOpen) {
+    panel.classList.remove('open');
+    panel.style.display = 'none';
+    btn.classList.remove('open');
+    btn.textContent = 'Stats \u25be';
+  } else {
+    // Find the bls data from the sibling match-info div (already rendered above)
+    var matchInfo = panel.previousElementSibling;
+    if (matchInfo && matchInfo.classList.contains('match-info')) {
+      // Move the bls-grid into panel for display
+      var grid = matchInfo.querySelector('.bls-grid');
+      var badge = matchInfo.querySelector('.bls-class-badge');
+      if (grid)  panel.appendChild(grid.cloneNode(true));
+      if (badge) panel.appendChild(badge.cloneNode(true));
+      panel.innerHTML = (grid ? grid.outerHTML : '') + (badge ? badge.outerHTML : '') + '<div class="bls-source">Source: BLS memory</div>';
+    }
+    panel.style.display = 'block';
+    panel.classList.add('open');
+    btn.classList.add('open');
+    btn.textContent = 'Stats \u25b4';
+  }
+}
+
+function onHistorySearch(val) {
+  _historySearch = val;
+  _lastHistLen = -1;  // force re-render
+  if (_state) renderHistory(_state.matchHistory || []);
 }
 function clearHistory(){
   if(window.Android){try{Android.setConfigValue('clear_history','1');}catch(e){}}
@@ -629,25 +921,44 @@ function doResetWL(){
 // ============================================================
 // BUTTON ACTIONS
 // ============================================================
+// Refresh stats when idle
+function doRefreshStats(){
+  var btn = document.getElementById('btn-refresh');
+  if(btn){ btn.style.opacity='0.4'; btn.disabled=true; }
+  try{
+    if(window.Android) Android.refreshLiveState();
+  }catch(e){}
+  // Re-enable after poll brings new state (max 2s)
+  setTimeout(function(){ if(btn){btn.style.opacity='1';btn.disabled=false;} }, 2000);
+  showToast('Refreshing stats…');
+}
+
 function toggleRunning(){
   if(!window.Android){showToast('Android bridge not ready');return;}
   if(!_isRunning){
-    // Start
+    // ── START ──
     if(_state&&!_state.connected){showToast('Not connected — sign in first');return;}
     try{Android.setRunning(true);}catch(e){showToast('Error: '+e.message);return;}
     _stopStage=0;
     showToast('Bot started');
   } else {
-    _stopStage++;
-    if(_stopStage===1){
-      // First press: graceful stop after current match
-      try{Android.setRunning(false);}catch(e){}
-      var ssBtn=document.getElementById('btn-startstop');
-      ssBtn.textContent='Force Stop';
-      ssBtn.className='btn btn-danger';
-      showToast('Stopping after current match — tap again to force stop');
+    var matchActive = _state && _state.match && _state.match.active;
+    if(_stopStage===0){
+      // ── FIRST TAP ──
+      if(matchActive){
+        // Match is ongoing: show toast, keep button as "Stop", bump stage
+        _stopStage=1;
+        showToast('Stopping After Match — Tap To Stop Now', 4000);
+        // Tell the bot to stop after current match finishes
+        try{Android.setRunning(false);}catch(e){}
+      } else {
+        // No match in progress: stop immediately
+        try{Android.setRunning(false);}catch(e){}
+        _stopStage=0;
+        showToast('Bot stopped');
+      }
     } else {
-      // Second press: force stop now
+      // ── SECOND TAP (force stop) ──
       try{Android.setRunning(false);}catch(e){}
       _stopStage=0;
       showToast('Force stopping now');
@@ -698,11 +1009,11 @@ function switchTab(name){
 // ============================================================
 // TOAST
 // ============================================================
-function showToast(msg){
+function showToast(msg, durationMs){
   var el=document.getElementById('toast');
   el.textContent=msg;el.classList.add('show');
   if(_toastTimer)clearTimeout(_toastTimer);
-  _toastTimer=setTimeout(function(){el.classList.remove('show');},2000);
+  _toastTimer=setTimeout(function(){el.classList.remove('show');},durationMs||2000);
 }
 
 // ============================================================
