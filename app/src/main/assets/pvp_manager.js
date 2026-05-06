@@ -3652,8 +3652,6 @@
                     allyHpMax:       allyHpMax,
                     enemyHp:         enemyHp,
                     enemyHpMax:      enemyHpMax,
-                    allyUid:         hpBarAllyUid  || null,
-                    enemyUid:        hpBarEnemyUid || null,
                     allyAvatarUrl:   hpBarAllyAvatarUrl  || null,
                     enemyAvatarUrl:  hpBarEnemyAvatarUrl || null
                 },
