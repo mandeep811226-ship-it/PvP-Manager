@@ -18,6 +18,12 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.FileOutputStream;
+
 public class AndroidBridge {
 
     private static final String PREFS_NAME          = "pvp_manager_prefs";
@@ -26,6 +32,7 @@ public class AndroidBridge {
     private static final String KEY_POLL_INTERVAL    = "poll_interval_ms";
     private static final String KEY_STRATEGY         = "strategy_json";
     private static final String KEY_SESSION_VERIFIED = "session_verified";
+    private static final String KEY_BLS_MEMORY       = "bls_memory_json"; // NEW
 
     // ── Log buffer ───────────────────────────────────────────────────────────
     private static final int LOG_MAX_ENTRIES = 500;
@@ -45,16 +52,11 @@ public class AndroidBridge {
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
 
-    // ── Keepalive stubs (kept so MainActivity compiles without changes) ───────
+    // ── Keepalive stubs ───────────────────────────────────────────────────────
     public void startKeepalive() {}
     public void stopKeepalive()  {}
 
     // ── Session ───────────────────────────────────────────────────────────────
-
-    /**
-     * Marks the session active or cleared.
-     * NOT a @JavascriptInterface — only trusted Java code may call this.
-     */
     public void setConnected(boolean connected) {
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) {
@@ -62,7 +64,7 @@ public class AndroidBridge {
         } else {
             ed.remove(KEY_SESSION_VERIFIED);
         }
-        ed.commit(); // synchronous so next getState() reads updated value
+        ed.commit();
         appendLog("system", connected ? "✅ Connected" : "❌ Disconnected");
         notifyUiStateChanged();
     }
@@ -71,7 +73,6 @@ public class AndroidBridge {
         return prefs.getBoolean(KEY_SESSION_VERIFIED, false);
     }
 
-    /** Grace period removed — was causing false disconnects on app restart. */
     public boolean inGracePeriod() {
         return false;
     }
@@ -120,9 +121,6 @@ public class AndroidBridge {
         try {
             JSONObject state = new JSONObject();
 
-            // Cookie-backed session validation: if the flag says connected but cookies
-            // are gone (e.g. app was killed and session cookies were in-memory only),
-            // the server session is dead — auto-clear so the UI shows the real state.
             boolean connected = isSessionVerified();
             if (connected) {
                 String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
@@ -150,7 +148,6 @@ public class AndroidBridge {
             config.put("pollIntervalMs", pollMs);
             state.put("config", config);
 
-            // Guard strategy JSON — a malformed value must NOT crash the entire getState().
             JSONObject strategy = null;
             try {
                 String stratJson = prefs.getString(KEY_STRATEGY, null);
@@ -167,8 +164,6 @@ public class AndroidBridge {
                 for (String line : logLines) sb.append(line).append("\n");
             }
 
-            // Merge game battle logs (from pvp_manager.js logHistory) with system logs.
-            // gameLogs is serialized in the same "unixMs|type|message" pipe format.
             String gameLogs = "";
             String cachedForLogs = prefs.getString("cached_live_state", null);
             if (cachedForLogs != null) {
@@ -189,16 +184,19 @@ public class AndroidBridge {
             }
             state.put("logs", combinedLogs);
 
-            // Guard cached_live_state JSON — a malformed value must NOT crash getState().
             boolean liveLoaded = false;
             String cachedLive = prefs.getString("cached_live_state", null);
             if (cachedLive != null) {
                 try {
                     JSONObject live = new JSONObject(cachedLive);
-                    state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
-                    state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
-                    state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
-                    state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
+                    state.put("match",        live.optJSONObject("match")        != null ? live.getJSONObject("match")        : new JSONObject());
+                    state.put("stats",        live.optJSONObject("stats")        != null ? live.getJSONObject("stats")        : new JSONObject());
+                    state.put("skillList",    live.optJSONArray("skillList")     != null ? live.getJSONArray("skillList")     : new JSONArray());
+                    state.put("matchHistory", live.optJSONArray("matchHistory")  != null ? live.getJSONArray("matchHistory")  : new JSONArray());
+                    // battleStats: ally/enemy BLS snapshot provided by pvp_manager.js
+                    if (live.optJSONObject("battleStats") != null) {
+                        state.put("battleStats", live.getJSONObject("battleStats"));
+                    }
                     liveLoaded = true;
                 } catch (JSONException ignored) {
                     appendLog("warning", "cached_live_state malformed — clearing");
@@ -210,13 +208,13 @@ public class AndroidBridge {
                 state.put("stats",        new JSONObject());
                 state.put("skillList",    new JSONArray());
                 state.put("matchHistory", new JSONArray());
+                state.put("battleStats",  new JSONObject());
             }
 
             return state.toString();
 
         } catch (JSONException e) {
             Log.e("PvPManager", "getState error: " + e.getMessage());
-            // Always return a valid JSON with connected so tick() never shows a false Disconnected.
             return "{\"connected\":false,\"running\":false,\"error\":\"" + e.getMessage() + "\"}";
         }
     }
@@ -225,9 +223,6 @@ public class AndroidBridge {
     public void refreshLiveState() {
         mainHandler.post(() -> {
             if (gameWebView == null) return;
-            // FIX: Return the raw JS object — evaluateJavascript serialises it
-            // to valid JSON once. JSON.stringify() in JS caused double-encoding.
-            // Guard: only proceed when the bridge hook is installed and is a real object.
             gameWebView.evaluateJavascript(
                 "(function(){" +
                 "  var s = window.__pvpmState;" +
@@ -236,7 +231,6 @@ public class AndroidBridge {
                 "})()",
                 value -> {
                     if (value == null || value.equals("null")) return;
-                    // value is already valid JSON — validate before saving.
                     try {
                         new JSONObject(value);
                         prefs.edit().putString("cached_live_state", value).apply();
@@ -318,6 +312,123 @@ public class AndroidBridge {
         }
     }
 
+    // ═══════════════════════════════════════════════════════
+    // BLS MEMORY — get / save / import / export
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Returns the raw BLS memory JSON string stored in SharedPreferences.
+     * Returns "{}" if nothing is stored yet (empty app-built-in state).
+     */
+    @JavascriptInterface
+    public String getBlsMemory() {
+        return prefs.getString(KEY_BLS_MEMORY, "{}");
+    }
+
+    /**
+     * Saves the BLS memory JSON string from the UI into SharedPreferences
+     * AND mirrors it to the game WebView's localStorage so pvp_manager.js
+     * can read fresh values immediately without waiting for the next match.
+     */
+    @JavascriptInterface
+    public void saveBlsMemory(String jsonString) {
+        // Validate JSON before saving
+        try {
+            new JSONObject(jsonString);
+        } catch (JSONException e) {
+            appendLog("error", "saveBlsMemory: invalid JSON — not saved");
+            return;
+        }
+        prefs.edit().putString(KEY_BLS_MEMORY, jsonString).commit();
+        // Mirror to game WebView localStorage so pvp_manager.js reads it live
+        final String escaped = jsonString.replace("\\", "\\\\").replace("'", "\\'");
+        evaluateInGameWebView("try{localStorage.setItem('bls_memory','" + escaped + "');}catch(e){}");
+        appendLog("system", "BLS memory saved (" + jsonString.length() + " bytes)");
+    }
+
+    /**
+     * Triggers the Android file picker (READ_EXTERNAL_STORAGE or
+     * ACTION_OPEN_DOCUMENT) so the user can select their BLS JSON file.
+     * The result is handled by MainActivity.onActivityResult(), which reads
+     * the file and calls back into JS via __pvpmBlsImportCallback().
+     */
+    @JavascriptInterface
+    public void requestBlsImport() {
+        mainHandler.post(() -> {
+            if (context instanceof MainActivity) {
+                ((MainActivity) context).requestBlsFilePicker();
+            }
+        });
+    }
+
+    /**
+     * Exports the current BLS memory JSON as a downloadable file.
+     * Writes to the app's external cache directory and shares via Intent.
+     */
+    @JavascriptInterface
+    public void exportBlsMemory(String jsonString) {
+        mainHandler.post(() -> {
+            try {
+                java.io.File dir  = context.getExternalCacheDir();
+                if (dir == null) dir = context.getCacheDir();
+                String filename = "bls_memory_" + System.currentTimeMillis() + ".json";
+                java.io.File file = new java.io.File(dir, filename);
+                try (OutputStream os = new FileOutputStream(file)) {
+                    os.write(jsonString.getBytes("UTF-8"));
+                }
+                // Share via Android's chooser so user can save to Downloads / Drive / etc.
+                Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    context.getPackageName() + ".fileprovider",
+                    file);
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("application/json");
+                shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+                shareIntent.putExtra(Intent.EXTRA_SUBJECT, "BLS Memory Export");
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                Intent chooser = Intent.createChooser(shareIntent, "Save BLS Memory");
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(chooser);
+                appendLog("system", "BLS exported: " + filename);
+            } catch (Exception e) {
+                appendLog("error", "BLS export failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Called by MainActivity after the user picks a file via the file picker.
+     * Reads the file and delivers the content to the UI WebView's JS callback.
+     */
+    public void deliverBlsFileContent(InputStream is) {
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line).append("\n");
+            reader.close();
+            String content = sb.toString().trim();
+
+            // Validate
+            new JSONObject(content);
+
+            final String escaped = content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+            mainHandler.post(() -> {
+                if (uiWebView != null) {
+                    uiWebView.evaluateJavascript(
+                        "if(window.__pvpmBlsImportCallback) window.__pvpmBlsImportCallback('" + escaped + "');",
+                        null);
+                }
+            });
+        } catch (Exception e) {
+            appendLog("error", "BLS file read failed: " + e.getMessage());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // END BLS MEMORY
+    // ═══════════════════════════════════════════════════════
+
     @JavascriptInterface
     public void clearLogs() {
         synchronized (logLines) { logLines.clear(); }
@@ -389,8 +500,6 @@ public class AndroidBridge {
     }
 
     public void appendLog(String type, String message) {
-        // Store as "unixMs|type|message" — the UI's renderLogs() parses parts[0]
-        // as a Unix-ms timestamp and converts it to HH:MM:SS via tsToHMS().
         String line = System.currentTimeMillis() + "|" + type + "|" + message;
         synchronized (logLines) {
             logLines.addLast(line);
