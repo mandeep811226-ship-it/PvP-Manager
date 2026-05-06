@@ -524,6 +524,14 @@
     let hpBarEnemyUid = '';
     let hpBarAllyAvatarUrl = '';
     let hpBarEnemyAvatarUrl = '';
+    // Live battle stat cache — populated during an active match from formula
+    // fields in each poll response; reset to null at the start of every match.
+    // Android reads these via buildAndroidState() → battleStats.
+    let liveStat = {
+        myAtk: null, myDef: null, myDmg: null, myRet: null, myCls: null, myCrit: null,
+        enAtk: null, enDef: null, enDmg: null, enRet: null, enCls: null, enCrit: null,
+        turnBonus: null, globalPacing: null
+    };
 
     // Log history - each entry: { plain, html, color }
     // plain = plain-text for clipboard, html = rich HTML for display, color = CSS color
@@ -2009,6 +2017,26 @@
     }
 
     /**
+     * Compute a player's effective ATK build from a formula object.
+     * Ported verbatim from pvp_stats_display.js computeAttackBuild().
+     */
+    function computeAttackBuild(f) {
+        return (f.exchange_attacker_attack_core || 0)
+             + (f.exchange_attacker_equipment_attack || 0)
+             + Math.round(0.2 * (f.exchange_attacker_pet_attack_raw_total || 0));
+    }
+
+    /**
+     * Compute a player's effective DEF build from a formula object.
+     * Ported verbatim from pvp_stats_display.js computeDefenseBuild().
+     */
+    function computeDefenseBuild(f) {
+        return Math.round(0.6 * (f.exchange_defender_defense_core_used || 0))
+             + (f.exchange_defender_equipment_defense_used || 0)
+             + Math.round(0.2 * (f.exchange_defender_pet_defense_used_total || 0));
+    }
+
+    /**
      * Write actor-attributed exchange scores into ogmaend's `bls_memory`
      * cache as they appear in match logs. Same key/shape ogmaend uses, so
      * its UI on pvp_battle.php sees our updates too. This fills the cache
@@ -2016,6 +2044,10 @@
      * ogmaend's own poll loop only runs on pvp_battle.php, so without this
      * step `bls_memory` would never be populated for opponents we fight
      * exclusively through automation.
+     *
+     * Also updates the in-memory liveStat object so buildAndroidState()
+     * can export a complete battleStats block to the Android UI even when
+     * pvp_stats_display.js is inactive (which it always is on pvp.php).
      */
     function writeBlsFromLogs(newLogs, matchId) {
         if (!Array.isArray(newLogs) || !newLogs.length) return;
@@ -2027,6 +2059,8 @@
         } catch (e) { mem = {}; }
 
         const matchIdNum = Number(matchId) || null;
+        const myUid  = allyUid  ? String(allyUid)  : null;
+        const enUid  = enemyUid ? String(enemyUid) : null;
         let changed = false;
 
         for (const log of newLogs) {
@@ -2038,27 +2072,67 @@
             const targetUid = String(target.key || '').split(':')[1] || '';
             if (!actorUid && !targetUid) continue;
 
+            // Raw scores
             const atk = (typeof f.exchange_attacker_score === 'number') ? f.exchange_attacker_score : null;
             const def = (typeof f.exchange_defender_score === 'number') ? f.exchange_defender_score : null;
 
-            if (actorUid && atk !== null) {
+            // Derived build stats (DMG = attacker's ATK build, RET = defender's DEF build)
+            const btd = (f.exchange_attacker_attack_core        != null) ? computeAttackBuild(f)  : null;
+            const dbb = (f.exchange_defender_defense_core_used  != null) ? computeDefenseBuild(f) : null;
+            const cc  = (typeof f.critical_chance === 'number')          ? f.critical_chance      : null;
+
+            // Per-match multipliers — overwrite with latest value each log entry
+            const tb = (typeof f.turn_bonus_multiplier    === 'number') ? f.turn_bonus_multiplier    : null;
+            const gp = (typeof f.global_damage_multiplier === 'number') ? f.global_damage_multiplier : null;
+            if (tb !== null) liveStat.turnBonus    = tb;
+            if (gp !== null) liveStat.globalPacing = gp;
+
+            // Update liveStat for the attacker side
+            if (myUid && actorUid === myUid) {
+                if (atk !== null) liveStat.myAtk  = atk;
+                if (btd !== null) liveStat.myDmg  = btd;
+                if (cc  !== null) liveStat.myCrit = cc;
+            } else if (enUid && actorUid === enUid) {
+                if (atk !== null) liveStat.enAtk  = atk;
+                if (btd !== null) liveStat.enDmg  = btd;
+                if (cc  !== null) liveStat.enCrit = cc;
+            }
+
+            // Update liveStat for the defender side
+            if (myUid && targetUid === myUid) {
+                if (def !== null) liveStat.myDef = def;
+                if (dbb !== null) liveStat.myRet = dbb;
+            } else if (enUid && targetUid === enUid) {
+                if (def !== null) liveStat.enDef = def;
+                if (dbb !== null) liveStat.enRet = dbb;
+            }
+
+            // ── Write to bls_memory (attacker record) ──────────────────────
+            if (actorUid) {
                 const cur = mem[actorUid] || {};
-                if (cur.attackerScore !== atk) {
-                    mem[actorUid] = Object.assign({}, cur, {
-                        attackerScore: atk,
+                const patch = {};
+                if (atk !== null && cur.attackerScore !== atk) patch.attackerScore = atk;
+                if (btd !== null && cur.baseTargetDmg !== btd) patch.baseTargetDmg = btd;
+                if (cc  !== null && cur.critChance    !== cc)  patch.critChance    = cc;
+                if (Object.keys(patch).length) {
+                    mem[actorUid] = Object.assign({}, cur, patch, {
                         name:        actor.name || cur.name || null,
                         lastMatchId: matchIdNum != null ? `pvp:${matchIdNum}` : (cur.lastMatchId || null)
                     });
                     changed = true;
                 }
             }
-            if (targetUid && def !== null) {
+
+            // ── Write to bls_memory (defender record) ──────────────────────
+            if (targetUid) {
                 const cur = mem[targetUid] || {};
-                if (cur.defenderScore !== def) {
-                    mem[targetUid] = Object.assign({}, cur, {
-                        defenderScore: def,
-                        name:          target.name || cur.name || null,
-                        lastMatchId:   matchIdNum != null ? `pvp:${matchIdNum}` : (cur.lastMatchId || null)
+                const patch = {};
+                if (def !== null && cur.defenderScore  !== def) patch.defenderScore  = def;
+                if (dbb !== null && cur.baseDamageBack !== dbb) patch.baseDamageBack = dbb;
+                if (Object.keys(patch).length) {
+                    mem[targetUid] = Object.assign({}, cur, patch, {
+                        name:        target.name || cur.name || null,
+                        lastMatchId: matchIdNum != null ? `pvp:${matchIdNum}` : (cur.lastMatchId || null)
                     });
                     changed = true;
                 }
@@ -3335,11 +3409,46 @@
         }
 
         /* ── 3. Capture player names for log tokenization ────── */
+        // Reset live stat cache for this match so stale data from a prior
+        // match is never shown.
+        liveStat = {
+            myAtk: null, myDef: null, myDmg: null, myRet: null, myCls: null, myCrit: null,
+            enAtk: null, enDef: null, enDmg: null, enRet: null, enCls: null, enCrit: null,
+            turnBonus: null, globalPacing: null
+        };
         {
             const a = state.teams?.ally?.players_by_num?.['1'];
             const e = state.teams?.enemy?.players_by_num?.['1'];
             if (a) { allyName  = a.username || null; allyUid  = a.user_id || null; }
             if (e) { enemyName = e.username || null; enemyUid = e.user_id || null; }
+            // Capture class from the initial state — role is stable for the
+            // whole match so one read here is enough.
+            if (a && a.role) liveStat.myCls = a.role.toLowerCase();
+            if (e && e.role) liveStat.enCls = e.role.toLowerCase();
+            // Also persist class into bls_memory so history expand panels
+            // can show CLASS for players we have fought before.
+            try {
+                const blsRaw = localStorage.getItem('bls_memory');
+                const blsMem = blsRaw ? JSON.parse(blsRaw) : {};
+                let blsChanged = false;
+                if (a && a.user_id && a.role) {
+                    const uid = String(a.user_id);
+                    const cur = blsMem[uid] || {};
+                    if (cur.playerClass !== a.role.toLowerCase()) {
+                        blsMem[uid] = Object.assign({}, cur, { playerClass: a.role.toLowerCase(), name: a.username || cur.name || null });
+                        blsChanged = true;
+                    }
+                }
+                if (e && e.user_id && e.role) {
+                    const uid = String(e.user_id);
+                    const cur = blsMem[uid] || {};
+                    if (cur.playerClass !== e.role.toLowerCase()) {
+                        blsMem[uid] = Object.assign({}, cur, { playerClass: e.role.toLowerCase(), name: e.username || cur.name || null });
+                        blsChanged = true;
+                    }
+                }
+                if (blsChanged) localStorage.setItem('bls_memory', JSON.stringify(blsMem));
+            } catch (_) {}
         }
 
         // Cache skill icons from state.me.skills so the strategy editor can
@@ -3549,6 +3658,11 @@
                 enemy: capture.enemy || { name: 'Unknown', uid: null, level: null, role: null, rank: null, points: null, party: null },
                 pointsBefore: capture.pointsBefore ?? null,
                 pointsAfter,
+                // Final HP snapshot so the history expand panel can render HP
+                allyHp:    allyHp    || null,
+                allyHpMax: allyHpMax || null,
+                enemyHp:   enemyHp   || null,
+                enemyHpMax: enemyHpMax || null,
             });
             pendingMatchCapture = null;
         }
@@ -3679,6 +3793,38 @@
                         }
                         return lines.join('\n');
                     } catch(ex) { return ''; }
+                })(),
+                battleStats: (function() {
+                    // Assemble the live battle stats for the Android overlay.
+                    // liveStat holds values updated on every log entry during a
+                    // match; bls_memory provides fallback for between-match reads.
+                    try {
+                        var myUid = allyUid  ? String(allyUid)  : null;
+                        var enUid = enemyUid ? String(enemyUid) : null;
+                        var blsMem = {};
+                        try {
+                            var blsRaw = localStorage.getItem('bls_memory');
+                            blsMem = blsRaw ? JSON.parse(blsRaw) : {};
+                        } catch (_) {}
+                        var myMem = (myUid && blsMem[myUid]) ? blsMem[myUid] : {};
+                        var enMem = (enUid && blsMem[enUid]) ? blsMem[enUid] : {};
+                        return {
+                            myAtk:  liveStat.myAtk  != null ? liveStat.myAtk  : (myMem.attackerScore  != null ? myMem.attackerScore  : null),
+                            myDef:  liveStat.myDef  != null ? liveStat.myDef  : (myMem.defenderScore  != null ? myMem.defenderScore  : null),
+                            myDmg:  liveStat.myDmg  != null ? liveStat.myDmg  : (myMem.baseTargetDmg  != null ? myMem.baseTargetDmg  : null),
+                            myRet:  liveStat.myRet  != null ? liveStat.myRet  : (myMem.baseDamageBack != null ? myMem.baseDamageBack : null),
+                            myCls:  liveStat.myCls  != null ? liveStat.myCls  : (myMem.playerClass    != null ? myMem.playerClass    : null),
+                            myCrit: liveStat.myCrit != null ? liveStat.myCrit : (myMem.critChance     != null ? myMem.critChance     : null),
+                            enAtk:  liveStat.enAtk  != null ? liveStat.enAtk  : (enMem.attackerScore  != null ? enMem.attackerScore  : null),
+                            enDef:  liveStat.enDef  != null ? liveStat.enDef  : (enMem.defenderScore  != null ? enMem.defenderScore  : null),
+                            enDmg:  liveStat.enDmg  != null ? liveStat.enDmg  : (enMem.baseTargetDmg  != null ? enMem.baseTargetDmg  : null),
+                            enRet:  liveStat.enRet  != null ? liveStat.enRet  : (enMem.baseDamageBack != null ? enMem.baseDamageBack : null),
+                            enCls:  liveStat.enCls  != null ? liveStat.enCls  : (enMem.playerClass    != null ? enMem.playerClass    : null),
+                            enCrit: liveStat.enCrit != null ? liveStat.enCrit : (enMem.critChance     != null ? enMem.critChance     : null),
+                            turnBonus:    liveStat.turnBonus    != null ? liveStat.turnBonus    : null,
+                            globalPacing: liveStat.globalPacing != null ? liveStat.globalPacing : null
+                        };
+                    } catch (_) { return {}; }
                 })()
             };
         } catch (e) {
