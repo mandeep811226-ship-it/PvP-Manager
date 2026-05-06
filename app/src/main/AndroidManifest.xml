@@ -37,6 +37,32 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 
+        <!--
+            FileProvider — required for exportBlsMemory() in AndroidBridge.java.
+            FileProvider.getUriForFile() looks up this <provider> block at runtime
+            to resolve the authority "com.pvpmanager.fileprovider".
+            If this block is absent the call throws:
+              "Couldn't find meta-data for provider with authority: …fileprovider"
+            which is the exact error the user reported.
+
+            android:authorities uses ${applicationId} so it automatically matches
+            the package name in any build variant (debug / release / renamed pkg).
+
+            The paths resource (@xml/file_paths) grants read URI permission over
+            the app's internal cache dir (getCacheDir) and, when available, the
+            external cache dir (getExternalCacheDir).  Both are tried by
+            exportBlsMemory() with external-cache as the preferred location.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
+
     </application>
 
 </manifest>
