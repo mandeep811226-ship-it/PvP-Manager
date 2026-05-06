@@ -17,8 +17,6 @@
   #app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
 
   /* ── TOP BAR ── */
-  /* FIX (Problem 2): Removed cookie-dump and settings buttons from top bar.
-     Login button is now the dominant CTA — full-width-ish, gold coloured. */
   #topbar{
     display:flex;align-items:center;gap:8px;
     padding:10px 12px;
@@ -35,14 +33,7 @@
   .btn-danger {background:var(--red);color:#fff}
   .btn-ghost  {background:var(--bg3);color:var(--text);border:1px solid var(--gold-border)}
   .btn-sm     {padding:5px 10px;font-size:11px}
-  /* Login button — dominant CTA */
-  #btn-login{
-    flex:1;           /* takes all remaining space */
-    max-width:160px;
-    padding:9px 18px;
-    font-size:13px;
-    font-weight:700;
-  }
+  #btn-login{flex:1;max-width:160px;padding:9px 18px;font-size:13px;font-weight:700;}
   #btn-login.signed-in{background:#1a2e1a !important;color:#22c55e !important;border:1px solid rgba(34,197,94,0.45) !important;font-weight:700}
 
   /* ── STATS ── */
@@ -62,6 +53,49 @@
   .hp-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
   .hp-dual-bar{display:flex;height:14px;background:var(--bg);border-radius:999px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)}
   .hp-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px}
+
+  /* ── BATTLE STATS ROWS (below HP, above tabs) ── */
+  #battle-stats-section{
+    background:var(--bg2);
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    flex-shrink:0;
+    padding:6px 0 4px 0;
+  }
+  .bst-row{
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    overflow-x:auto;
+    overflow-y:hidden;
+    white-space:nowrap;
+    scrollbar-width:none;
+    -ms-overflow-style:none;
+    padding:2px 10px;
+    gap:0;
+    min-height:26px;
+  }
+  .bst-row::-webkit-scrollbar{display:none}
+  .bst-label{
+    font-size:10px;font-weight:700;color:var(--gold);
+    margin-right:6px;flex-shrink:0;letter-spacing:.3px;
+    min-width:60px;
+  }
+  .bst-label.enemy-label{color:#ef5350;}
+  .bst-chip{
+    display:inline-flex;align-items:center;gap:3px;
+    background:var(--bg3);border:1px solid rgba(255,255,255,0.07);
+    border-radius:6px;padding:2px 7px;font-size:10px;
+    margin-right:5px;flex-shrink:0;
+  }
+  .bst-chip-key{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-right:1px}
+  .bst-chip-val{color:var(--text);font-weight:600}
+  .bst-chip-val.atk{color:#f78839}
+  .bst-chip-val.def{color:#a78bfa}
+  .bst-chip-val.dmg{color:#f59e0b}
+  .bst-chip-val.ret{color:#34d399}
+  .bst-chip-val.cls{color:var(--gold)}
+  .bst-chip-val.bon{color:#60a5fa}
+  .bst-divider{width:1px;height:16px;background:rgba(255,255,255,0.1);margin:0 6px;flex-shrink:0}
 
   /* ── TABS ── */
   #tab-bar{display:flex;background:var(--bg2);border-bottom:1px solid var(--gold-border);flex-shrink:0}
@@ -90,7 +124,14 @@
   .log-badge.error  {background:rgba(239,68,68,0.22);color:#ef4444}
   .log-badge.win    {background:rgba(102,187,106,0.2);color:#66bb6a}
   .log-badge.loss   {background:rgba(239,83,80,0.2);color:#ef5350}
+  /* Battle log colorized message text */
   .log-msg{color:var(--text);word-break:break-word;flex:1}
+  .log-msg .lc-you{color:#42a5f5;font-weight:bold}
+  .log-msg .lc-opp{color:#ef5350;font-weight:bold}
+  .log-msg .lc-win{color:#66bb6a;font-weight:bold}
+  .log-msg .lc-loss{color:#ef5350;font-weight:bold}
+  .log-msg .lc-gold{color:var(--gold);font-weight:bold}
+  .log-msg .lc-vs{color:#fb923c;font-weight:700}
 
   /* ── STRATEGY ── */
   .card{background:var(--bg2);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.07);padding:12px}
@@ -111,6 +152,20 @@
   .entry-actions{display:flex;gap:6px;justify-content:flex-end}
 
   /* ── HISTORY ── */
+  /* Search bar */
+  #history-search-wrap{
+    display:flex;align-items:center;gap:8px;
+    background:var(--bg2);border:1px solid var(--gold-border);
+    border-radius:var(--radius);padding:6px 10px;
+    flex-shrink:0;margin-bottom:2px;
+  }
+  #history-search-wrap svg{width:14px;height:14px;color:var(--muted);flex-shrink:0;fill:none;stroke:currentColor;stroke-width:2}
+  #history-search{
+    border:none;background:transparent;color:var(--text);
+    font-size:13px;font-family:var(--font);outline:none;flex:1;
+  }
+  #history-search::placeholder{color:var(--muted)}
+
   .match-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
   .match-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg3)}
   .match-info{flex:1;min-width:0}
@@ -124,12 +179,50 @@
   .result-badge.loss{background:rgba(239,83,80,0.2);color:#ef5350}
   .result-badge.tie{background:rgba(96,165,250,0.2);color:#60a5fa}
 
+  /* Collapse button in history */
+  .match-collapse-btn{
+    border:none;background:var(--bg3);color:var(--muted);
+    border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;
+    flex-shrink:0;line-height:1.4;align-self:center;
+    border:1px solid rgba(255,255,255,0.08);
+  }
+  .match-collapse-btn.open{color:var(--gold);border-color:var(--gold-border)}
+  /* BLS expanded stats panel */
+  .match-bls-expand{
+    background:var(--bg3);border-radius:8px;
+    border:1px solid var(--gold-border);
+    padding:8px 10px;margin-top:4px;
+    display:none;flex-direction:column;gap:6px;
+    font-size:11px;
+  }
+  .match-bls-expand.open{display:flex}
+  .bls-stat-row{display:flex;gap:10px;flex-wrap:wrap}
+  .bls-stat-chip{display:flex;align-items:center;gap:3px}
+  .bls-stat-chip-k{color:var(--muted);font-size:10px;text-transform:uppercase}
+  .bls-stat-chip-v{font-weight:700}
+  .bls-stat-chip-v.atk{color:#f78839}
+  .bls-stat-chip-v.def{color:#a78bfa}
+  .bls-stat-chip-v.dmg{color:#f59e0b}
+  .bls-stat-chip-v.ret{color:#34d399}
+  .bls-stat-chip-v.cls{color:var(--gold)}
+  .bls-stat-chip-v.hp{color:#60a5fa}
+  .bls-stat-chip-v.crit{color:#fb923c}
+  .bls-expand-section{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+
   /* ── SETTINGS ── */
   .setting-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);gap:12px}
   .setting-row:last-child{border-bottom:none}
   .setting-title{font-size:13px;font-weight:600}
   .setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
   .settings-section-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:4px 0 6px}
+
+  /* BLS import notice */
+  #bls-status-notice{
+    background:var(--bg3);border:1px solid var(--gold-border);
+    border-radius:var(--radius);padding:8px 12px;font-size:11px;
+    color:var(--muted);margin-bottom:0;line-height:1.5;
+  }
+  #bls-status-notice strong{color:var(--text)}
 
   /* ── TOAST ── */
   #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg3);border:1px solid var(--gold-border);color:var(--text);padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:999;pointer-events:none;white-space:nowrap}
@@ -145,17 +238,17 @@
 <body>
 <div id="app">
 
-  <!-- TOP BAR: only connection status, start/stop, and the prominent login button -->
+  <!-- TOP BAR -->
   <div id="topbar">
     <span id="conn-dot"></span>
     <span id="conn-label">Disconnected</span>
     <div class="spacer"></div>
     <button class="btn btn-gold" id="btn-startstop" onclick="toggleRunning()">Start</button>
     <button class="btn btn-ghost" id="btn-refresh" onclick="doRefreshStats()" title="Refresh stats" style="padding:6px 9px;font-size:14px;line-height:1">↻</button>
-    <!-- FIX (Problem 2): Login is the dominant CTA — full-width, gold when disconnected -->
     <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Sign In</button>
   </div>
 
+  <!-- SESSION STATS -->
   <div id="stats-wrap">
     <div id="stats-row1">
       <div class="stat-pill"><span class="stat-pill-label">Rank</span>  <span class="stat-pill-val" id="stat-rank">—</span></div>
@@ -172,6 +265,7 @@
     </div>
   </div>
 
+  <!-- HP SECTION -->
   <div id="hp-section" class="inactive">
     <div class="hp-combatants">
       <div class="hp-fighter">
@@ -191,6 +285,41 @@
     <div class="hp-labels"><span id="ally-hp-pct">50%</span><span id="enemy-hp-pct">50%</span></div>
   </div>
 
+  <!-- ═══════════════════════════════════════════════════
+       BATTLE STATS ROWS  (below HP bar, above tabs)
+       Row 1: You — ATK / DEF / DMG / RET / Class
+       Row 2: Enemy — ATK / DEF / DMG / RET / Class
+       Row 3: Turn Bonus / Global Pacing
+       Each row is a single scrollable horizontal strip.
+  ════════════════════════════════════════════════════ -->
+  <div id="battle-stats-section">
+    <!-- Row 1: You -->
+    <div class="bst-row" id="bst-row-you">
+      <span class="bst-label">You :</span>
+      <span class="bst-chip"><span class="bst-chip-key">Att</span><span class="bst-chip-val atk" id="bst-you-att">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Def</span><span class="bst-chip-val def" id="bst-you-def">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Dmg</span><span class="bst-chip-val dmg" id="bst-you-dmg">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Ret</span><span class="bst-chip-val ret" id="bst-you-ret">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Class</span><span class="bst-chip-val cls" id="bst-you-cls">—</span></span>
+    </div>
+    <!-- Row 2: Enemy -->
+    <div class="bst-row" id="bst-row-enemy">
+      <span class="bst-label enemy-label">Enemy :</span>
+      <span class="bst-chip"><span class="bst-chip-key">Att</span><span class="bst-chip-val atk" id="bst-en-att">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Def</span><span class="bst-chip-val def" id="bst-en-def">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Dmg</span><span class="bst-chip-val dmg" id="bst-en-dmg">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Ret</span><span class="bst-chip-val ret" id="bst-en-ret">—</span></span>
+      <span class="bst-chip"><span class="bst-chip-key">Class</span><span class="bst-chip-val cls" id="bst-en-cls">—</span></span>
+    </div>
+    <!-- Row 3: Multipliers -->
+    <div class="bst-row" id="bst-row-mults">
+      <span class="bst-chip"><span class="bst-chip-key">Turn Bonus</span><span class="bst-chip-val bon" id="bst-turn-bonus">—</span></span>
+      <span class="bst-divider"></span>
+      <span class="bst-chip"><span class="bst-chip-key">Global Pacing</span><span class="bst-chip-val bon" id="bst-global-pacing">—</span></span>
+    </div>
+  </div>
+
+  <!-- TABS -->
   <div id="tab-bar">
     <button class="tab-btn active" onclick="switchTab('battle')">Battle</button>
     <button class="tab-btn"        onclick="switchTab('strategy')">Strategy</button>
@@ -200,13 +329,8 @@
 
   <div id="tab-panels">
 
-    <!-- BATTLE -->
+    <!-- BATTLE TAB -->
     <div class="tab-panel active" id="panel-battle">
-      <!--
-        FIX (Problem 1): Log container renders oldest-to-newest (stable order).
-        New entries append to bottom and the container auto-scrolls down.
-        Logs are never auto-cleared — only via the "Clear Logs" button.
-      -->
       <div id="log-container"><div class="empty-state">No logs yet.</div></div>
       <div style="display:flex;gap:8px;flex-shrink:0;padding-top:4px">
         <button class="btn btn-ghost btn-sm" onclick="doCopyLogs()">Copy Logs</button>
@@ -214,7 +338,7 @@
       </div>
     </div>
 
-    <!-- STRATEGY -->
+    <!-- STRATEGY TAB -->
     <div class="tab-panel" id="panel-strategy">
       <div class="card">
         <div class="toggle-row">
@@ -229,13 +353,17 @@
       <button class="btn btn-ghost" onclick="addStrategyEntry()" style="align-self:flex-start">+ Add Entry</button>
     </div>
 
-    <!-- HISTORY -->
+    <!-- HISTORY TAB -->
     <div class="tab-panel" id="panel-history">
+      <!-- Live search bar -->
+      <div id="history-search-wrap">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="history-search" type="text" placeholder="Search player name…" oninput="onHistorySearch(this.value)" autocomplete="off"/>
+      </div>
       <div id="history-list"></div>
     </div>
 
-    <!-- SETTINGS -->
-    <!-- FIX (Problem 2): Cookie dump + battery optimisation moved here from top bar -->
+    <!-- SETTINGS TAB -->
     <div class="tab-panel" id="panel-settings">
       <div class="card">
         <div class="settings-section-label">Bot</div>
@@ -252,12 +380,33 @@
           </label>
         </div>
         <div class="setting-row">
-          <div><div class="setting-title">Clear History</div><div class="setting-sub">Remove all recorded match history</div></div>
-          <button class="btn btn-ghost btn-sm" onclick="clearHistory()">Clear</button>
+          <div><div class="setting-title">Reset W/L</div><div class="setting-sub">Clear win/loss counters only</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="doResetWL()">Reset</button>
+        </div>
+      </div>
+
+      <!-- BLS Memory section -->
+      <div class="card">
+        <div class="settings-section-label">BLS Memory</div>
+        <div id="bls-status-notice">
+          <!-- populated by refreshBlsNotice() -->
         </div>
         <div class="setting-row">
-          <div><div class="setting-title">Reset W/L</div><div class="setting-sub">Clear win/loss counters and match history</div></div>
-          <button class="btn btn-ghost btn-sm" onclick="doResetWL()">Reset</button>
+          <div>
+            <div class="setting-title">Import BLS File</div>
+            <div class="setting-sub">Load a saved bls_memory JSON — merges with existing data</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="doImportBls()">Import</button>
+          <!-- hidden file input — triggered by doImportBls() -->
+          <input type="file" id="bls-file-input" accept=".json,application/json"
+            style="display:none" onchange="onBlsFileSelected(this)"/>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-title">Export BLS File</div>
+            <div class="setting-sub">Download current bls_memory as a JSON file</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="doExportBls()">Export</button>
         </div>
       </div>
 
@@ -283,6 +432,9 @@
 
 <div id="toast"></div>
 
+<!-- Hidden link used by BLS export -->
+<a id="bls-export-link" style="display:none"></a>
+
 <script>
 // ============================================================
 // STATE
@@ -296,24 +448,200 @@ var _pollTimer       = null;
 var _pollIntervalMs  = 2500;
 var _isRunning       = false;
 var _toastTimer      = null;
-var _stopStage       = 0;   // 0=idle, 1=first press (stop after match), 2=force stop
+var _stopStage       = 0;
 
-// FIX (Problem 1): Log tracking — we only re-render when the log string changes.
-// We compare a hash to avoid unnecessary DOM thrashing on every tick.
 var _lastLogHash  = '';
 var _lastHistLen  = -1;
+var _historyData  = [];   // full unfiltered history for search
+var _histSearch   = '';   // current search string
 
-// FIX: Debug toggle — local value is authoritative after first init.
-// Poll loop may only SET it once (on first load). After that, only user
-// interaction via onDebugToggleChange() may change it.
 var _debugToggleReady = false;
 var _debugToggleValue = false;
-
-// Poll interval — prevent remote from overwriting while user is editing
 var _pollIntervalTouched = false;
 
+// BLS memory — kept in-memory mirror (source of truth is Android-side via saveBls())
+var _blsMemory = {};      // { userId: { name, attackerScore, defenderScore, baseTargetDmg, baseDamageBack, critChance, playerClass, lastMatchId } }
+var _blsLoaded = false;
+
+// Turn-bonus / global pacing (updated from match state)
+var _turnBonus    = null;
+var _globalPacing = null;
+
 // ============================================================
-// SETTINGS CHANGE HANDLERS  (user-initiated — authoritative)
+// BLS MEMORY HELPERS
+// ============================================================
+function blsFmt(v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return String(v);
+}
+
+function blsClassEmoji(cls) {
+  var m = { mage:'🔥', cleric:'✨', warrior:'⚔️', hunter:'🏹' };
+  return (cls && m[cls]) ? (m[cls] + ' ' + cls) : (cls || '—');
+}
+
+/** Load BLS from Android bridge */
+function loadBlsFromBridge() {
+  if (!window.Android) return;
+  try {
+    var raw = Android.getBlsMemory();
+    if (!raw) {
+      _blsMemory = {};
+    } else {
+      _blsMemory = JSON.parse(raw) || {};
+    }
+    _blsLoaded = true;
+    refreshBlsNotice();
+  } catch(e) { _blsMemory = {}; _blsLoaded = true; }
+}
+
+/** Save BLS to Android bridge */
+function saveBlsToBridge() {
+  if (!window.Android) return;
+  try { Android.saveBlsMemory(JSON.stringify(_blsMemory)); } catch(e) {}
+}
+
+/**
+ * Intelligently merge an imported BLS object into the current _blsMemory.
+ * For each player: take the record with the higher lastMatchId (most recent data wins).
+ * If both have data for a field, use the imported value only if its matchId >= current matchId.
+ */
+function mergeBlsMemory(incoming) {
+  if (!incoming || typeof incoming !== 'object') return 0;
+  var count = 0;
+  var numericFields = ['attackerScore', 'defenderScore', 'baseTargetDmg', 'baseDamageBack', 'critChance'];
+  var stringFields  = ['playerClass', 'name'];
+
+  Object.keys(incoming).forEach(function(uid) {
+    var imp = incoming[uid];
+    if (!imp || typeof imp !== 'object') return;
+    var cur = _blsMemory[uid] || {};
+
+    var impMatchId = typeof imp.lastMatchId === 'number' ? imp.lastMatchId : (parseInt(imp.lastMatchId) || 0);
+    var curMatchId = typeof cur.lastMatchId === 'number' ? cur.lastMatchId : (parseInt(cur.lastMatchId) || 0);
+
+    // If imported record is newer or equal, merge its fields
+    var impNewer = impMatchId >= curMatchId;
+
+    numericFields.forEach(function(f) {
+      if (imp[f] != null && (impNewer || cur[f] == null)) cur[f] = imp[f];
+    });
+    stringFields.forEach(function(f) {
+      if (imp[f] != null && (impNewer || cur[f] == null)) cur[f] = imp[f];
+    });
+    if (impNewer && impMatchId > 0) cur.lastMatchId = impMatchId;
+
+    _blsMemory[uid] = cur;
+    count++;
+  });
+  return count;
+}
+
+function refreshBlsNotice() {
+  var el = document.getElementById('bls-status-notice');
+  if (!el) return;
+  var count = Object.keys(_blsMemory).length;
+  if (count === 0) {
+    el.innerHTML = '⚠️ No BLS file imported. Using <strong>app built-in memory</strong> (empty at start). Stats will accumulate as you fight. You can import your existing BLS file above to instantly load known player data.';
+  } else {
+    el.innerHTML = '✅ BLS memory loaded — <strong>' + count + ' players</strong> tracked. Stats update automatically during battles. Export to save your data.';
+  }
+}
+
+/** Import button: request Android file picker permission + open file */
+function doImportBls() {
+  if (!window.Android) {
+    // Fallback: use hidden file input directly (desktop testing)
+    document.getElementById('bls-file-input').click();
+    return;
+  }
+  try {
+    // Ask Android to trigger the file picker — it will call back into JS
+    Android.requestBlsImport();
+  } catch(e) {
+    showToast('File picker not available');
+  }
+}
+
+/** Called by Android after user selects a file — receives file content as string */
+window.__pvpmBlsImportCallback = function(jsonContent) {
+  try {
+    var incoming = JSON.parse(jsonContent);
+    var merged = mergeBlsMemory(incoming);
+    saveBlsToBridge();
+    refreshBlsNotice();
+    showToast('Imported & merged ' + merged + ' players');
+    // Refresh history to show new stats
+    if (_historyData.length) renderHistory(_historyData);
+  } catch(e) {
+    showToast('Import failed: invalid JSON');
+  }
+};
+
+/** Called by file input (desktop/fallback) */
+function onBlsFileSelected(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    window.__pvpmBlsImportCallback(ev.target.result);
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+/** Export BLS memory as JSON download */
+function doExportBls() {
+  try {
+    var count = Object.keys(_blsMemory).length;
+    if (count === 0) { showToast('Nothing to export yet'); return; }
+    if (window.Android) {
+      Android.exportBlsMemory(JSON.stringify(_blsMemory));
+      showToast('Exported ' + count + ' players');
+    } else {
+      // Fallback for desktop
+      var blob = new Blob([JSON.stringify(_blsMemory, null, 2)], { type: 'application/json' });
+      var url  = URL.createObjectURL(blob);
+      var a    = document.getElementById('bls-export-link');
+      a.href     = url;
+      a.download = 'bls_memory_' + Date.now() + '.json';
+      a.click();
+      showToast('Exported ' + count + ' players');
+    }
+  } catch(e) { showToast('Export failed'); }
+}
+
+// ============================================================
+// BATTLE STATS ROW HELPERS
+// ============================================================
+function updateBattleStatRows(s) {
+  var m = (s && s.match) || {};
+  var bs = (s && s.battleStats) || {};
+
+  // You stats
+  setText('bst-you-att', blsFmt(bs.myAtk));
+  setText('bst-you-def', blsFmt(bs.myDef));
+  setText('bst-you-dmg', blsFmt(bs.myDmg));
+  setText('bst-you-ret', blsFmt(bs.myRet));
+  setText('bst-you-cls', bs.myCls ? blsClassEmoji(bs.myCls) : '—');
+
+  // Enemy stats
+  setText('bst-en-att', blsFmt(bs.enAtk));
+  setText('bst-en-def', blsFmt(bs.enDef));
+  setText('bst-en-dmg', blsFmt(bs.enDmg));
+  setText('bst-en-ret', blsFmt(bs.enRet));
+  setText('bst-en-cls', bs.enCls ? blsClassEmoji(bs.enCls) : '—');
+
+  // Multipliers
+  var tb = bs.turnBonus   != null ? 'x' + Number(bs.turnBonus).toFixed(2)   : '—';
+  var gp = bs.globalPacing != null ? 'x' + Number(bs.globalPacing).toFixed(2) : '—';
+  setText('bst-turn-bonus',    tb);
+  setText('bst-global-pacing', gp);
+}
+
+// ============================================================
+// SETTINGS CHANGE HANDLERS
 // ============================================================
 function onDebugToggleChange(checked) {
   _debugToggleValue = checked;
@@ -391,7 +719,6 @@ function applyState(s) {
   var ssBtn = document.getElementById('btn-startstop');
   var wasRunning = _isRunning;
   _isRunning = !!s.running;
-  // Reset stop stage when bot has actually stopped
   if (wasRunning && !_isRunning) {
     _stopStage = 0;
     ssBtn.textContent = 'Start';
@@ -400,10 +727,9 @@ function applyState(s) {
     ssBtn.textContent = 'Stop';
     ssBtn.className   = 'btn btn-danger';
   }
-  // If not running and stage somehow stuck, reset
   if (!_isRunning) { _stopStage = 0; ssBtn.textContent='Start'; ssBtn.className='btn btn-gold'; }
 
-  // Stats
+  // Stats pills
   var st = s.stats || {};
   setText('stat-rank',   st.rank   || '—');
   setText('stat-tier',   st.tier   || '—');
@@ -411,7 +737,7 @@ function applyState(s) {
   setText('stat-souls',  st.souls  || '—');
   setText('stat-tokens', st.tokens || '—');
 
-  // W/L from matchHistory
+  // W/L
   var hist = s.matchHistory || [];
   var wins = 0, losses = 0;
   for (var hi = 0; hi < hist.length; hi++) {
@@ -449,8 +775,14 @@ function applyState(s) {
 
   if (s.skillList && s.skillList.length) _skillList = s.skillList;
 
-  if (_activeTab === 'battle')  renderLogs(s.logs || '');
-  if (_activeTab === 'history') renderHistory(s.matchHistory || []);
+  // Update battle stat rows
+  updateBattleStatRows(s);
+
+  if (_activeTab === 'battle')   renderLogs(s.logs || '');
+  if (_activeTab === 'history') {
+    _historyData = s.matchHistory || [];
+    renderHistory(_historyData);
+  }
   if (_activeTab === 'strategy' && !_strategyDirty) {
     var strat = s.strategy || {};
     document.getElementById('strategy-toggle').checked = !!strat.enabled;
@@ -461,13 +793,11 @@ function applyState(s) {
   }
   if (_activeTab === 'settings') {
     var cfg = s.config || {};
-    // Init debug toggle from prefs on first load only
     if (!_debugToggleReady) {
       _debugToggleValue = !!cfg.debugLogs;
       _debugToggleReady = true;
       document.getElementById('debug-toggle').checked = _debugToggleValue;
     }
-    // Poll interval — only sync from remote if user isn't editing
     if (!_pollIntervalTouched) {
       var pi = document.getElementById('poll-interval-input');
       if (document.activeElement !== pi) {
@@ -477,17 +807,40 @@ function applyState(s) {
       }
     }
   }
+
+  // Load BLS on first applyState
+  if (!_blsLoaded) loadBlsFromBridge();
 }
 
 // ============================================================
-// FIX (Problem 1): Log rendering
-// - Oldest-to-newest order (stable — no reordering on new entries)
-// - Auto-scrolls to bottom so latest entry is always visible
-// - Only re-renders DOM when content actually changes
-// - Never auto-clears; user clears via the button
+// LOG RENDERING  (colourized)
 // ============================================================
+// Colour-code keywords that were already coloured in pvp_manager.js
+var LOG_COLOR_PATTERNS = [
+  // "You" and "Opponent" player references
+  { re: /\bYou\b/g,      cls: 'lc-you' },
+  { re: /\bOpponent\b/g, cls: 'lc-opp' },
+  // Win / loss outcome words
+  { re: /\b(Victory|Won|Win)\b/gi,             cls: 'lc-win' },
+  { re: /\b(Defeat|Lost|Loss)\b/gi,            cls: 'lc-loss' },
+  // Match-flow words
+  { re: /\b(Match Ended|Battle Over)\b/gi,     cls: 'lc-gold' },
+  { re: /\b(vs\.?|versus)\b/gi,               cls: 'lc-vs' },
+  { re: /\b(The trial is before you|Endure)\b/gi, cls: 'lc-gold' },
+];
+
+function colorizeLogMsg(raw) {
+  var escaped = esc(raw);
+  LOG_COLOR_PATTERNS.forEach(function(p) {
+    escaped = escaped.replace(p.re, function(match) {
+      return '<span class="' + p.cls + '">' + match + '</span>';
+    });
+  });
+  return escaped;
+}
+
 function renderLogs(raw) {
-  if (raw === _lastLogHash) return;  // no change — skip DOM update
+  if (raw === _lastLogHash) return;
   var wasAtBottom = isLogScrolledToBottom();
   _lastLogHash = raw;
 
@@ -508,20 +861,17 @@ function renderLogs(raw) {
     } else if (parts.length === 3) {
       ts = parseInt(parts[0], 10); type = parts[1]; color = ''; msg = parts[2];
     } else { continue; }
+
+    // Apply the stored CSS color as a row tint if present
     var rowStyle = color ? ' style="color:' + color + '"' : '';
     html += '<div class="log-entry"' + rowStyle + '>' +
-      '<span class="log-ts">'                       + esc(tsToHMS(ts)) + '</span>' +
+      '<span class="log-ts">'                        + esc(tsToHMS(ts)) + '</span>' +
       '<span class="log-badge ' + esc(type) + '">'  + esc(type)        + '</span>' +
-      '<span class="log-msg">'                       + esc(msg)         + '</span>' +
+      '<span class="log-msg">'                       + colorizeLogMsg(msg) + '</span>' +
       '</div>';
   }
   container.innerHTML = html || '<div class="empty-state">No logs yet.</div>';
-
-  // Auto-scroll to bottom so the latest entry is visible,
-  // but only if the user was already at the bottom (respect manual scroll-up)
-  if (wasAtBottom) {
-    container.scrollTop = container.scrollHeight;
-  }
+  if (wasAtBottom) container.scrollTop = container.scrollHeight;
 }
 
 function isLogScrolledToBottom() {
@@ -576,170 +926,260 @@ function renderStrategyEntries(){
 }
 
 // ============================================================
-// HISTORY
+// HISTORY  (with search + collapsible BLS panels)
 // ============================================================
-function renderHistory(history){
-  if(history.length===_lastHistLen)return;
-  _lastHistLen=history.length;
-  var c=document.getElementById('history-list');
-  if(!history.length){c.innerHTML='<div class="empty-state">No matches recorded yet.</div>';return;}
-  var h='';
-  for(var i=history.length-1;i>=0;i--){
-    var m=history[i],en=m.enemy||{};
-    // pointsDelta: use stored value or compute from before/after
-    var d=(m.pointsDelta!=null)?m.pointsDelta:((m.pointsAfter!=null&&m.pointsBefore!=null)?(m.pointsAfter-m.pointsBefore):0);
-    var dc=d>=0?'pos':'neg',ds=(d>=0?'+':'')+d;
-    var rc=m.result==='win'?'win':m.result==='loss'?'loss':'tie';
-    var rl=m.result==='win'?'W':m.result==='loss'?'L':'T';
-    var ts=m.ts?new Date(m.ts):null;
-    var tsS=ts?(pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())):'';
-    // Normalize avatar URL to absolute
-    var avatarUrl=en.avatarUrl||'';
-    if(avatarUrl&&avatarUrl.indexOf('http')!==0)avatarUrl='https://demonicscans.org'+(avatarUrl.indexOf('/')===0?'':'/')+avatarUrl;
-    h+='<div class="match-row">';
-    if(avatarUrl){
-      h+='<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
-    }else{
-      h+='<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
-    }
-    h+='<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
-    // Enemy class/level/party row
-    var meta=[];
-    if(en.role)meta.push(esc(en.role));
-    if(en.level)meta.push('Lv.'+esc(String(en.level)));
-    if(en.party)meta.push('\u2694 '+esc(en.party));
-    if(meta.length)h+='<div class="match-meta" style="color:var(--gold)">'+meta.join(' · ')+'</div>';
-    h+='<div class="match-meta">'+esc(tsS);
-    if(m.matchId)h+=' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
-    if(en.uid)h+=' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
-    h+='</div></div><div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'\u2192'+(m.pointsAfter||0)+'</div></div>';
-    h+='<span class="result-badge '+rc+'">'+rl+'</span></div>';
+var _openCollapseIds = {}; // track which rows are expanded
+
+function onHistorySearch(val) {
+  _histSearch = (val || '').toLowerCase().trim();
+  renderHistory(_historyData);
+}
+
+function toggleMatchCollapse(idx) {
+  _openCollapseIds[idx] = !_openCollapseIds[idx];
+  // Re-render only the expand panel for performance
+  var panel = document.getElementById('bls-expand-' + idx);
+  var btn   = document.getElementById('bls-btn-' + idx);
+  if (panel) {
+    panel.classList.toggle('open', !!_openCollapseIds[idx]);
   }
-  c.innerHTML=h;
+  if (btn) {
+    btn.textContent = _openCollapseIds[idx] ? '▲ Stats' : '▼ Stats';
+    btn.classList.toggle('open', !!_openCollapseIds[idx]);
+  }
 }
-function clearHistory(){
-  if(window.Android){try{Android.setConfigValue('clear_history','1');}catch(e){}}
-  _lastHistLen=0;
-  document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>';
-  showToast('History cleared');
+
+function buildBlsExpandHtml(m, idx) {
+  // Look up enemy stats from _blsMemory if available
+  var en   = m.enemy || {};
+  var uid  = String(en.uid || '');
+  var bls  = (uid && _blsMemory[uid]) ? _blsMemory[uid] : null;
+
+  var atk  = bls ? blsFmt(bls.attackerScore)  : '—';
+  var def  = bls ? blsFmt(bls.defenderScore)   : '—';
+  var dmg  = bls ? blsFmt(bls.baseTargetDmg)   : '—';
+  var ret  = bls ? blsFmt(bls.baseDamageBack)  : '—';
+  var cls  = bls ? blsClassEmoji(bls.playerClass) : '—';
+  var crit = bls ? (bls.critChance != null ? (bls.critChance * 100).toFixed(1) + '%' : '—') : '—';
+
+  // Compute HP info from match record if stored
+  var hp    = (m.enemyHp    != null) ? blsFmt(m.enemyHp)    : '—';
+  var hpMax = (m.enemyHpMax != null) ? blsFmt(m.enemyHpMax) : '—';
+
+  return '<div class="bls-expand-section">Enemy Battle Stats (from BLS Memory)</div>' +
+    '<div class="bls-stat-row">' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">ATK</span><span class="bls-stat-chip-v atk">'+atk+'</span></span>' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">DEF</span><span class="bls-stat-chip-v def">'+def+'</span></span>' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">DMG</span><span class="bls-stat-chip-v dmg">'+dmg+'</span></span>' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">RET</span><span class="bls-stat-chip-v ret">'+ret+'</span></span>' +
+    '</div>' +
+    '<div class="bls-stat-row">' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">Class</span><span class="bls-stat-chip-v cls">'+cls+'</span></span>' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">Crit</span><span class="bls-stat-chip-v crit">'+crit+'</span></span>' +
+      '<span class="bls-stat-chip"><span class="bls-stat-chip-k">HP</span><span class="bls-stat-chip-v hp">'+hp+' / '+hpMax+'</span></span>' +
+    '</div>' +
+    (bls ? '' : '<div style="color:var(--muted);font-size:10px;margin-top:2px">No BLS data yet for this player — fight them to learn their stats.</div>');
 }
-function doResetWL(){
-  // Clear match history via Android (reuses clear_history key) and reset UI
-  if(window.Android){try{Android.setConfigValue('clear_history','1');}catch(e){}}
-  _lastHistLen=0;
-  setText('stat-matches','0');setText('stat-wins','0');setText('stat-losses','0');setText('stat-wr','—');
-  document.getElementById('history-list').innerHTML='<div class="empty-state">History cleared.</div>';
+
+function renderHistory(history) {
+  // Filter by search
+  var filtered = history;
+  if (_histSearch) {
+    filtered = history.filter(function(m) {
+      var name = ((m.enemy && m.enemy.name) || '').toLowerCase();
+      return name.indexOf(_histSearch) !== -1;
+    });
+  }
+
+  // Only skip re-render if no search and length unchanged
+  if (!_histSearch && filtered.length === _lastHistLen) return;
+  _lastHistLen = filtered.length;
+
+  var c = document.getElementById('history-list');
+  if (!filtered.length) {
+    c.innerHTML = '<div class="empty-state">' +
+      (_histSearch ? 'No players match "' + esc(_histSearch) + '".' : 'No matches recorded yet.') +
+      '</div>';
+    return;
+  }
+
+  var h = '';
+  for (var i = filtered.length - 1; i >= 0; i--) {
+    var m   = filtered[i];
+    var en  = m.enemy || {};
+    var idx = i; // stable index for this filtered result
+
+    var d  = (m.pointsDelta != null) ? m.pointsDelta
+           : ((m.pointsAfter != null && m.pointsBefore != null) ? (m.pointsAfter - m.pointsBefore) : 0);
+    var dc = d >= 0 ? 'pos' : 'neg';
+    var ds = (d >= 0 ? '+' : '') + d;
+    var rc = m.result === 'win' ? 'win' : m.result === 'loss' ? 'loss' : 'tie';
+    var rl = m.result === 'win' ? 'W'  : m.result === 'loss' ? 'L'   : 'T';
+
+    var ts  = m.ts ? new Date(m.ts) : null;
+    var tsS = ts ? (pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())) : '';
+
+    var avatarUrl = en.avatarUrl || '';
+    if (avatarUrl && avatarUrl.indexOf('http') !== 0)
+      avatarUrl = 'https://demonicscans.org' + (avatarUrl.indexOf('/') === 0 ? '' : '/') + avatarUrl;
+
+    var isOpen = !!_openCollapseIds[idx];
+
+    h += '<div class="match-row" style="flex-wrap:wrap">';
+    // Avatar
+    if (avatarUrl) {
+      h += '<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
+    } else {
+      h += '<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
+    }
+    // Info
+    h += '<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
+    var meta = [];
+    if (en.role)  meta.push(esc(en.role));
+    if (en.level) meta.push('Lv.'+esc(String(en.level)));
+    if (en.party) meta.push('⚔ '+esc(en.party));
+    if (meta.length) h += '<div class="match-meta" style="color:var(--gold)">'+meta.join(' · ')+'</div>';
+    h += '<div class="match-meta">'+esc(tsS);
+    if (m.matchId) h += ' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
+    if (en.uid)    h += ' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
+    h += '</div></div>';
+    // Points
+    h += '<div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'→'+(m.pointsAfter||0)+'</div></div>';
+    // Result badge
+    h += '<span class="result-badge '+rc+'">'+rl+'</span>';
+    // Collapse button
+    h += '<button id="bls-btn-'+idx+'" class="match-collapse-btn'+(isOpen?' open':'')+'" onclick="toggleMatchCollapse('+idx+')">'+(isOpen?'▲ Stats':'▼ Stats')+'</button>';
+    // Full-width BLS expand panel
+    h += '<div id="bls-expand-'+idx+'" class="match-bls-expand'+(isOpen?' open':'')+'" style="width:100%;flex-basis:100%">' +
+           buildBlsExpandHtml(m, idx) +
+         '</div>';
+    h += '</div>'; // /match-row
+  }
+  c.innerHTML = h;
+}
+
+function doResetWL() {
+  if (window.Android) { try { Android.setConfigValue('clear_history', '1'); } catch(e) {} }
+  _lastHistLen = 0;
+  _historyData = [];
+  setText('stat-matches','0'); setText('stat-wins','0'); setText('stat-losses','0'); setText('stat-wr','—');
+  document.getElementById('history-list').innerHTML = '<div class="empty-state">History cleared.</div>';
   showToast('W/L reset');
 }
 
 // ============================================================
 // BUTTON ACTIONS
 // ============================================================
-// Refresh stats when idle
-function doRefreshStats(){
+function doRefreshStats() {
   var btn = document.getElementById('btn-refresh');
-  if(btn){ btn.style.opacity='0.4'; btn.disabled=true; }
-  try{
-    if(window.Android) Android.refreshLiveState();
-  }catch(e){}
-  // Re-enable after poll brings new state (max 2s)
-  setTimeout(function(){ if(btn){btn.style.opacity='1';btn.disabled=false;} }, 2000);
+  if (btn) { btn.style.opacity='0.4'; btn.disabled=true; }
+  try { if (window.Android) Android.refreshLiveState(); } catch(e) {}
+  setTimeout(function() { if (btn) { btn.style.opacity='1'; btn.disabled=false; } }, 2000);
   showToast('Refreshing stats…');
 }
 
-function toggleRunning(){
-  if(!window.Android){showToast('Android bridge not ready');return;}
-  if(!_isRunning){
-    // ── START ──
-    if(_state&&!_state.connected){showToast('Not connected — sign in first');return;}
-    try{Android.setRunning(true);}catch(e){showToast('Error: '+e.message);return;}
-    _stopStage=0;
+function toggleRunning() {
+  if (!window.Android) { showToast('Android bridge not ready'); return; }
+  if (!_isRunning) {
+    if (_state && !_state.connected) { showToast('Not connected — sign in first'); return; }
+    try { Android.setRunning(true); } catch(e) { showToast('Error: '+e.message); return; }
+    _stopStage = 0;
     showToast('Bot started');
   } else {
     var matchActive = _state && _state.match && _state.match.active;
-    if(_stopStage===0){
-      // ── FIRST TAP ──
-      if(matchActive){
-        // Match is ongoing: show toast, keep button as "Stop", bump stage
-        _stopStage=1;
+    if (_stopStage === 0) {
+      if (matchActive) {
+        _stopStage = 1;
         showToast('Stopping After Match — Tap To Stop Now', 4000);
-        // Tell the bot to stop after current match finishes
-        try{Android.setRunning(false);}catch(e){}
+        try { Android.setRunning(false); } catch(e) {}
       } else {
-        // No match in progress: stop immediately
-        try{Android.setRunning(false);}catch(e){}
-        _stopStage=0;
+        try { Android.setRunning(false); } catch(e) {}
+        _stopStage = 0;
         showToast('Bot stopped');
       }
     } else {
-      // ── SECOND TAP (force stop) ──
-      try{Android.setRunning(false);}catch(e){}
-      _stopStage=0;
+      try { Android.setRunning(false); } catch(e) {}
+      _stopStage = 0;
       showToast('Force stopping now');
     }
   }
 }
-function doLogin(){
-  if(!window.Android){showToast('Android bridge not ready');return;}
-  if(_state&&_state.connected){
-    try{Android.logout();}catch(e){}
+
+function doLogin() {
+  if (!window.Android) { showToast('Android bridge not ready'); return; }
+  if (_state && _state.connected) {
+    try { Android.logout(); } catch(e) {}
     showToast('Signed out');
   } else {
-    try{Android.openLogin();}catch(e){showToast('Error opening sign in');}
+    try { Android.openLogin(); } catch(e) { showToast('Error opening sign in'); }
   }
 }
-function doCopyLogs(){if(!window.Android)return;try{Android.copyLogs();showToast('Logs copied');}catch(e){}}
-function doClearLogs(){
-  if(!window.Android)return;
-  try{Android.clearLogs();}catch(e){}
-  document.getElementById('log-container').innerHTML='<div class="empty-state">No logs yet.</div>';
-  _lastLogHash='';
+
+function doCopyLogs() { if (!window.Android) return; try { Android.copyLogs(); showToast('Logs copied'); } catch(e) {} }
+function doClearLogs() {
+  if (!window.Android) return;
+  try { Android.clearLogs(); } catch(e) {}
+  document.getElementById('log-container').innerHTML = '<div class="empty-state">No logs yet.</div>';
+  _lastLogHash = '';
   showToast('Logs cleared');
 }
-function doDumpCookies(){
-  if(!window.Android)return;
-  try{Android.dumpCookies();showToast('Cookie dump — check logs');}catch(e){}
+function doDumpCookies() {
+  if (!window.Android) return;
+  try { Android.dumpCookies(); showToast('Cookie dump — check logs'); } catch(e) {}
 }
-function doRequestBatteryOpt(){
-  if(!window.Android)return;
-  try{Android.requestIgnoreBatteryOptimization();}catch(e){showToast('Not available');}
+function doRequestBatteryOpt() {
+  if (!window.Android) return;
+  try { Android.requestIgnoreBatteryOptimization(); } catch(e) { showToast('Not available'); }
 }
 
 // ============================================================
 // TABS
 // ============================================================
-function switchTab(name){
-  _activeTab=name;_strategyDirty=false;
-  var tabs=['battle','strategy','history','settings'];
-  var btns=document.querySelectorAll('.tab-btn');
-  for(var i=0;i<btns.length;i++)btns[i].classList.toggle('active',tabs[i]===name);
-  var panels=document.querySelectorAll('.tab-panel');
-  for(var j=0;j<panels.length;j++)panels[j].classList.toggle('active',panels[j].id==='panel-'+name);
-  if(name==='strategy'&&_state){var st=_state.strategy||{};_strategyEntries=JSON.parse(JSON.stringify(st.entries||[]));document.getElementById('strategy-toggle').checked=!!st.enabled;renderStrategyEntries();}
-  if(name==='history'&&_state){_lastHistLen=-1;renderHistory(_state.matchHistory||[]);}
-  if(name==='battle'&&_state){_lastLogHash='';renderLogs(_state.logs||'');}
+function switchTab(name) {
+  _activeTab = name; _strategyDirty = false;
+  var tabs = ['battle','strategy','history','settings'];
+  var btns = document.querySelectorAll('.tab-btn');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', tabs[i] === name);
+  var panels = document.querySelectorAll('.tab-panel');
+  for (var j = 0; j < panels.length; j++) panels[j].classList.toggle('active', panels[j].id === 'panel-' + name);
+  if (name === 'strategy' && _state) {
+    var st = _state.strategy || {};
+    _strategyEntries = JSON.parse(JSON.stringify(st.entries || []));
+    document.getElementById('strategy-toggle').checked = !!st.enabled;
+    renderStrategyEntries();
+  }
+  if (name === 'history' && _state) {
+    _historyData = _state.matchHistory || [];
+    _lastHistLen = -1;
+    renderHistory(_historyData);
+  }
+  if (name === 'battle' && _state) { _lastLogHash = ''; renderLogs(_state.logs || ''); }
+  if (name === 'settings') { loadBlsFromBridge(); refreshBlsNotice(); }
 }
 
 // ============================================================
 // TOAST
 // ============================================================
-function showToast(msg, durationMs){
-  var el=document.getElementById('toast');
-  el.textContent=msg;el.classList.add('show');
-  if(_toastTimer)clearTimeout(_toastTimer);
-  _toastTimer=setTimeout(function(){el.classList.remove('show');},durationMs||2000);
+function showToast(msg, durationMs) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function() { el.classList.remove('show'); }, durationMs || 2000);
 }
 
 // ============================================================
 // UTILS
 // ============================================================
-function setText(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function setText(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
+function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // ============================================================
 // INIT
 // ============================================================
-document.addEventListener('DOMContentLoaded', function(){ startPoll(); });
+document.addEventListener('DOMContentLoaded', function() {
+  startPoll();
+  refreshBlsNotice(); // show notice immediately
+});
 </script>
 </body>
 </html>
