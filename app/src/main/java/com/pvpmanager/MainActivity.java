@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -48,6 +49,10 @@ public class MainActivity extends AppCompatActivity {
     // Runtime permission launcher for POST_NOTIFICATIONS (Android 13+)
     private ActivityResultLauncher<String> notificationPermissionLauncher;
 
+    // ── BLS File Picker ──────────────────────────────────────────────────────
+    // Uses the modern Activity Result API (no deprecated onActivityResult needed).
+    private ActivityResultLauncher<String[]> blsFilePickerLauncher;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -57,6 +62,31 @@ public class MainActivity extends AppCompatActivity {
         notificationPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),
             granted -> Log.d("PvPManager", "POST_NOTIFICATIONS granted=" + granted));
+
+        // Register the BLS file picker — opens on demand from requestBlsFilePicker()
+        blsFilePickerLauncher = registerForActivityResult(
+            new ActivityResultContracts.OpenDocument(),
+            uri -> {
+                if (uri == null) return; // user cancelled
+                try {
+                    // Persist read permission across reboots (best-effort)
+                    try {
+                        getContentResolver().takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (Exception ignored) {}
+
+                    InputStream is = getContentResolver().openInputStream(uri);
+                    if (is != null && bridge != null) {
+                        // Run on background thread — reading can be slow for large files
+                        new Thread(() -> {
+                            bridge.deliverBlsFileContent(is);
+                        }).start();
+                    }
+                } catch (Exception e) {
+                    Log.e("PvPManager", "BLS file open failed: " + e.getMessage());
+                    if (bridge != null) bridge.appendLog("error", "BLS file open failed: " + e.getMessage());
+                }
+            });
 
         FrameLayout root = new FrameLayout(this);
         root.setLayoutParams(new FrameLayout.LayoutParams(
@@ -78,10 +108,10 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
-                // NOTE: verifyGameWebViewSession removed — it caused false disconnects
-                // by watching redirects to sign.php on startup before cookies were sent.
-                // Connection state is now set ONLY by saveConnect() and logout().
                 injectUserScript(view);
+                // After page load, sync the stored BLS memory into game WebView localStorage
+                // so pvp_manager.js can read bls_memory immediately without waiting for a match
+                syncBlsToGameWebView();
             }
         });
         root.addView(gameWebView);
@@ -139,10 +169,6 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
-                // FIX: Only reset to IDLE if not connected.
-                // If the user is already connected and the loginWebView navigates
-                // (e.g. they browse around), we must NOT flip the button back to
-                // SAVE & CONNECT — it should stay green (CONNECTED/SUCCESS).
                 if (bridge != null) {
                     if (bridge.isSessionVerified()) {
                         setConnectButtonState(ConnectState.SUCCESS);
@@ -157,11 +183,6 @@ public class MainActivity extends AppCompatActivity {
         root.addView(loginContainer);
         setContentView(root);
 
-        // Load pvp.php on startup. Since verifyGameWebViewSession is removed,
-        // sign.php redirects no longer cause false disconnects.
-        // If already connected, cookies will be sent and the page loads normally.
-        // If not connected, the page loads for context but connection state is
-        // only changed by saveConnect() or logout() — never by page navigation.
         gameWebView.loadUrl(PVP_URL);
 
         // Start foreground service
@@ -171,11 +192,7 @@ public class MainActivity extends AppCompatActivity {
 
         requestRuntimePermissions();
 
-        // Startup cookie validation.
-        // KEY_SESSION_VERIFIED survives process kills but session cookies may not
-        // (Chromium only persists cookies that have Expires/Max-Age; session cookies
-        // live in memory only). Wait 1 s for the Chromium store to finish loading
-        // from disk, then verify the stored session flag against real cookie presence.
+        // Startup cookie validation
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (bridge != null && bridge.isSessionVerified()) {
                 String cookies = CookieManager.getInstance()
@@ -191,6 +208,38 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         }, 1000);
+    }
+
+    // ── BLS File Picker entry point ───────────────────────────────────────────
+
+    /**
+     * Called by AndroidBridge.requestBlsImport() (from JS).
+     * Launches the system file picker for JSON files.
+     * The result is delivered to blsFilePickerLauncher above.
+     */
+    public void requestBlsFilePicker() {
+        try {
+            blsFilePickerLauncher.launch(new String[]{"application/json", "*/*"});
+        } catch (Exception e) {
+            Log.e("PvPManager", "Could not open file picker: " + e.getMessage());
+            if (bridge != null) bridge.appendLog("error", "File picker failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Syncs the stored BLS memory from SharedPreferences into the game WebView's
+     * localStorage so pvp_manager.js always has fresh data.
+     * Called after every gameWebView page load.
+     */
+    private void syncBlsToGameWebView() {
+        if (bridge == null || gameWebView == null) return;
+        String blsJson = bridge.getBlsMemory();
+        if (blsJson == null || blsJson.equals("{}")) return;
+        final String escaped = blsJson.replace("\\", "\\\\").replace("'", "\\'");
+        new Handler(Looper.getMainLooper()).post(() -> {
+            gameWebView.evaluateJavascript(
+                "try{localStorage.setItem('bls_memory','" + escaped + "');}catch(e){}", null);
+        });
     }
 
     // ── Runtime permissions ───────────────────────────────────────────────────
@@ -229,7 +278,6 @@ public class MainActivity extends AppCompatActivity {
         bar.setBackgroundColor(Color.parseColor("#1a1025"));
         bar.setPadding(dp(12), dp(8), dp(12), dp(8));
 
-        // BACK always closes the overlay and returns to the app UI
         TextView back = pillButton("← BACK TO APP", Color.parseColor("#2d2040"));
         back.setOnClickListener(v -> closeLoginOverlay());
         LinearLayout.LayoutParams backP = new LinearLayout.LayoutParams(
@@ -266,7 +314,6 @@ public class MainActivity extends AppCompatActivity {
                 bg.setColor(Color.parseColor("#B71C1C"));
                 btnSaveConnect.setText("✗ NOT LOGGED IN");
                 btnSaveConnect.setEnabled(true);
-                // Auto-reset after 2.5s
                 new Handler(Looper.getMainLooper()).postDelayed(
                     () -> setConnectButtonState(ConnectState.IDLE), 2500);
                 break;
@@ -281,13 +328,6 @@ public class MainActivity extends AppCompatActivity {
 
     public void showLogin() {
         if (loginWebView == null || loginContainer == null) return;
-        // FIX: Only reset the button to IDLE when NOT already connected.
-        // Previously this was unconditional — so if the user tapped "Login"
-        // a second time (e.g. main UI showed Disconnected due to a race), the
-        // button would flip back to "SAVE & CONNECT" even though the session
-        // was still valid in prefs. The user would have to tap Save & Connect
-        // again for no reason.
-        // If already connected: show the green CONNECTED button immediately.
         if (bridge != null && bridge.isSessionVerified()) {
             setConnectButtonState(ConnectState.SUCCESS);
         } else {
@@ -296,9 +336,6 @@ public class MainActivity extends AppCompatActivity {
         loginContainer.setVisibility(View.VISIBLE);
         loginWebView.requestFocus();
         String cur = loginWebView.getUrl();
-        // Load the site if blank/null or if currently on an auth page
-        // FIX: The real sign-in page is /sign.php — not /signin or /login.
-        // All four auth-page checks in this file must include sign.php.
         boolean onAuthPage = cur != null && (
                 cur.contains("/sign.php") || cur.contains("/signin") ||
                 cur.contains("/login")    || cur.contains("/register") ||
@@ -310,14 +347,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ── Save & Connect ────────────────────────────────────────────────────────
-    //
-    // Flow (simplified — grace period removed):
-    //  1. Flush CookieManager and check cookies exist for the domain
-    //  2. Verify URL is on the site and NOT on a login/auth page
-    //  3. setConnected(true) — this is the ONLY place that sets connected=true
-    //  4. Auto-close overlay → user sees Connected state immediately
-    //  5. Load PVP_URL in gameWebView so the bot can operate
-    // ─────────────────────────────────────────────────────────────────────────
 
     public void saveConnect() {
         if (bridge == null || loginWebView == null) {
@@ -326,14 +355,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         bridge.appendLog("system", "SAVE & CONNECT tapped");
-
-        // Flush ensures CookieManager has the latest cookies from loginWebView
         CookieManager.getInstance().flush();
 
         String currentUrl = loginWebView.getUrl();
         bridge.appendLog("debug", "loginWebView URL: " + currentUrl);
 
-        // Check 1: URL must be on the site and NOT on an auth/sign-in page
         boolean urlOk = currentUrl != null
                 && currentUrl.contains("demonicscans.org")
                 && !currentUrl.contains("sign.php")
@@ -342,7 +368,6 @@ public class MainActivity extends AppCompatActivity {
                 && !currentUrl.contains("register")
                 && !currentUrl.equals("about:blank");
 
-        // Check 2: Cookies must exist for the domain
         String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
         boolean hasCookies = cookies != null && !cookies.trim().isEmpty();
 
@@ -350,7 +375,6 @@ public class MainActivity extends AppCompatActivity {
                 + " cookieLen=" + (cookies == null ? 0 : cookies.length()));
 
         if (!urlOk || !hasCookies) {
-            // Failure — must be logged in on the site with valid cookies
             setConnectButtonState(ConnectState.FAILURE);
             String reason = !hasCookies ? "No cookies found — please log in first"
                                         : "Please log in on the site, then tap Save & Connect";
@@ -359,28 +383,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // ── SUCCESS PATH ─────────────────────────────────────────────────────
-
-        // Mark connected — this is the ONLY place setConnected(true) is called.
-        // No grace period, no page-load watching. State is permanent until logout.
         bridge.setConnected(true);
         bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
 
-        // Show green button briefly so user sees confirmation
         setConnectButtonState(ConnectState.SUCCESS);
 
-        // Close the overlay immediately and refresh UI — user lands on app with
-        // Connected state already painted (no flicker, no delay).
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             closeLoginOverlay();
-            // Explicitly refresh UI after overlay closes
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
                     "if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
             }
         }, 600);
 
-        // Load PVP_URL in gameWebView so bot scripts are ready
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (gameWebView != null) {
                 CookieManager.getInstance().flush();
@@ -389,8 +404,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }, 800);
 
-        // Final UI sync after all deferred work settles.
-        // Ensures Connected state is painted even if a poll tick raced the 600ms close.
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript(
@@ -399,12 +412,6 @@ public class MainActivity extends AppCompatActivity {
         }, 1200);
     }
 
-    /**
-     * Reads all localStorage keys/values from loginWebView and injects them
-     * into gameWebView. Calls {@code onDone} on the main thread when finished.
-     * Safe to call even if gameWebView hasn't loaded a page yet — it just
-     * stores them for when the next page loads from the same origin.
-     */
     private void syncLocalStorageToGameWebView(Runnable onDone) {
         if (loginWebView == null) { if (onDone != null) onDone.run(); return; }
 
@@ -426,7 +433,6 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                // raw is a JSON-encoded string (double-quoted). Unwrap it.
                 String json = raw;
                 if (json.startsWith("\"") && json.endsWith("\"")) {
                     json = json.substring(1, json.length() - 1)
@@ -448,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
                             "      if (obj.hasOwnProperty(k)) localStorage.setItem(k, obj[k]);" +
                             "    }" +
                             "  } catch(e) {}" +
-                            "})('" + finalJson.replace("'", "\\'") + "');";
+                            "  })('" + finalJson.replace("'", "\\'") + "');";
                         gameWebView.evaluateJavascript(injectJs, v2 -> {
                             if (bridge != null)
                                 bridge.appendLog("debug", "localStorage sync done");
@@ -461,20 +467,11 @@ public class MainActivity extends AppCompatActivity {
             });
     }
 
-
-
     // ── Overlay helpers ───────────────────────────────────────────────────────
 
     private void closeLoginOverlay() {
         if (loginContainer == null) return;
         loginContainer.setVisibility(View.INVISIBLE);
-        // FIX: Only reset the button to IDLE when NOT already connected.
-        // Previously this was unconditional — if the user tapped "← BACK TO APP"
-        // after a successful "Save & Connect", the button was reset to IDLE and
-        // the 200ms-delayed UI refresh could briefly race against the poll timer,
-        // sometimes showing "Disconnected" for one tick before recovering.
-        // We also call __pvpmUiRefresh immediately (no delay) so the connected
-        // state is painted before the overlay finishes hiding.
         if (bridge == null || !bridge.isSessionVerified()) {
             setConnectButtonState(ConnectState.IDLE);
         }
@@ -520,10 +517,6 @@ public class MainActivity extends AppCompatActivity {
     public void injectUserScript(WebView view) {
         try {
             InputStream is = getAssets().open("pvp_manager.js");
-            // FIX: InputStream.available() is unreliable for asset streams and may
-            // return fewer bytes than the file length. A single read() also does not
-            // guarantee filling the buffer. Use a ByteArrayOutputStream loop to read
-            // the entire file regardless of how many chunks the OS delivers.
             java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
             byte[] chunk = new byte[8192];
             int n;
@@ -560,7 +553,6 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        // Hardware back key when overlay is open → always close overlay
         if (loginContainer != null && loginContainer.getVisibility() == View.VISIBLE) {
             closeLoginOverlay();
             return;
