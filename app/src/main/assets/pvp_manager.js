@@ -3652,6 +3652,8 @@
                     allyHpMax:       allyHpMax,
                     enemyHp:         enemyHp,
                     enemyHpMax:      enemyHpMax,
+                    allyUid:         hpBarAllyUid  || null,
+                    enemyUid:        hpBarEnemyUid || null,
                     allyAvatarUrl:   hpBarAllyAvatarUrl  || null,
                     enemyAvatarUrl:  hpBarEnemyAvatarUrl || null
                 },
@@ -3665,15 +3667,17 @@
                         for (var i = 0; i < entries.length; i++) {
                             var e = entries[i];
                             var plain = typeof e === 'string' ? e : (e.plain || '');
+                            var color = (e && e.color) ? e.color : '';
                             var type = 'info';
-                            if (e && e.color) {
-                                var c = String(e.color).toLowerCase();
-                                if (c === '#66bb6a' || c === '#4caf50' || c.indexOf('green') !== -1) type = 'win';
-                                else if (c === '#ef5350' || c === '#f44336' || c.indexOf('red') !== -1) type = 'loss';
-                                else if (c === '#fb923c' || c.indexOf('orange') !== -1) type = 'warning';
-                                else if (c === '#60a5fa' || c.indexOf('blue') !== -1) type = 'debug';
+                            if (color) {
+                                var c = color.toLowerCase();
+                                if (c === '#66bb6a' || c === '#4caf50' || c === '#a5d6a7' || c === '#81c784') type = 'win';
+                                else if (c === '#ef5350' || c === '#ef9a9a') type = 'loss';
+                                else if (c === '#ffb74d' || c === '#fb923c') type = 'warning';
+                                else if (c === '#81d4fa' || c === '#2196f3' || c === '#42a5f5') type = 'info';
+                                else if (c === '#aaa' || c === '#546e7a') type = 'system';
                             }
-                            lines.push((base - entries.length + i) + '|' + type + '|' + plain);
+                            lines.push((base - entries.length + i) + '|' + type + '|' + (color || '') + '|' + plain);
                         }
                         return lines.join('\n');
                     } catch(ex) { return ''; }
