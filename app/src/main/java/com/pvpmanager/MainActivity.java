@@ -518,51 +518,43 @@ public void injectUserScript(WebView view) {
 
     try {
 
-        StringBuilder combined = new StringBuilder();
+        InputStream is =
+                getAssets().open("pvp_manager.js");
 
-        String[] scripts = {
-            "pvp_manager.js",
-            "pvp_stats_display.js"
-        };
+        java.io.ByteArrayOutputStream baos =
+                new java.io.ByteArrayOutputStream();
 
-        for (String file : scripts) {
+        byte[] chunk = new byte[8192];
 
-            InputStream is = getAssets().open(file);
+        int n;
 
-            java.io.ByteArrayOutputStream baos =
-                    new java.io.ByteArrayOutputStream();
-
-            byte[] chunk = new byte[8192];
-
-            int n;
-
-            while ((n = is.read(chunk)) != -1) {
-                baos.write(chunk, 0, n);
-            }
-
-            is.close();
-
-            combined.append("\n");
-            combined.append(
-                    baos.toString(StandardCharsets.UTF_8.name())
-            );
-            combined.append("\n");
+        while ((n = is.read(chunk)) != -1) {
+            baos.write(chunk, 0, n);
         }
+
+        is.close();
+
+        String script =
+                baos.toString(StandardCharsets.UTF_8.name());
 
         view.evaluateJavascript(
                 "(function(){\n" +
-                        combined.toString() +
+                        script +
                         "\n})();",
                 null
         );
 
-        Log.d("PvPManager", "Injected all scripts successfully");
+        Log.d(
+                "PvPManager",
+                "Injected pvp_manager.js successfully"
+        );
 
     } catch (IOException e) {
 
-        Log.e("PvPManager",
-                "injectUserScript error: " + e.getMessage());
-
+        Log.e(
+                "PvPManager",
+                "injectUserScript: " + e.getMessage()
+        );
     }
 }
 
