@@ -456,8 +456,16 @@ public class AndroidBridge {
                 String filename = "bls_memory_" + System.currentTimeMillis() + ".json";
                 java.io.File file = new java.io.File(dir, filename);
                 try (OutputStream os = new FileOutputStream(file)) {
-                    os.write(jsonString.getBytes("UTF-8"));
-                }
+
+    JSONObject obj = new JSONObject(jsonString);
+
+    String formatted =
+            obj.toString(2);
+
+    os.write(
+            formatted.getBytes("UTF-8")
+    );
+}
                 // Share via Android's chooser so user can save to Downloads / Drive / etc.
                 Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
                     context,
