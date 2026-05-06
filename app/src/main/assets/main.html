@@ -790,7 +790,8 @@ function applyState(s) {
   var loginBtn = document.getElementById('btn-login');
   if (s.connected) {
     dot.className           = 'on';
-    label.textContent       = 'Connected';
+    var _acctName = (s.activeAccount && s.activeAccount.playerName) ? s.activeAccount.playerName : 'Connected';
+    label.textContent       = _acctName;
     loginBtn.textContent    = 'Sign Out';
     loginBtn.className      = 'btn signed-in';
     loginBtn.style.background = '#1a2e1a';
