@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FileProvider path configuration for com.pvpmanager.
+
+    Grants FileProvider.getUriForFile() permission to vend URIs for files
+    inside the two cache directories that exportBlsMemory() writes to:
+
+      • cache-path        → context.getCacheDir()          (always available)
+      • external-cache-path → context.getExternalCacheDir() (preferred; may be
+                              null on devices with no external storage — the
+                              code already falls back to getCacheDir() in that
+                              case so this entry is safely ignored when absent)
+
+    Both entries use path="." which means the entire cache directory tree is
+    accessible.  Only files explicitly passed to getUriForFile() are ever
+    exposed; the broad path does NOT open arbitrary cache files to other apps.
+
+    Place this file at:  app/src/main/res/xml/file_paths.xml
+-->
+<paths>
+    <!-- Internal cache — context.getCacheDir() -->
+    <cache-path
+        name="internal_cache"
+        path="." />
+
+    <!-- External cache — context.getExternalCacheDir() -->
+    <external-cache-path
+        name="external_cache"
+        path="." />
+</paths>
