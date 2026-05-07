@@ -135,6 +135,21 @@ public class MainActivity extends AppCompatActivity {
                 if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
                 injectUserScript(view);
                 syncBlsToGameWebView();
+                // Inject the known active player ID into the page so pvp_manager.js resolves
+                // identity immediately without waiting for DOM link scanning (BUG2 FIX).
+                // Uses a short delay to ensure the injected script has already executed.
+                String knownId = accountStore.getActiveAccountId();
+                if (knownId != null && !knownId.isEmpty()) {
+                    final String safeId = knownId.replaceAll("[^0-9]", "");
+                    if (!safeId.isEmpty()) {
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            if (view != null) {
+                                view.evaluateJavascript(
+                                    "window.__pvpmActivePlayerId='" + safeId + "';", null);
+                            }
+                        }, 400);
+                    }
+                }
                 // Extract / refresh account identity after page load when connected
                 if (bridge != null && bridge.isSessionVerified()
                         && url != null && url.contains("demonicscans.org")) {
@@ -322,12 +337,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // 3. Clear cookies AND WebStorage so old account's localStorage session can't persist (FIX4)
+        // 3. Clear cookies; wipe ONLY the legacy bare (non-scoped) localStorage keys so that the
+        //    target account's scoped history, session and logs (keyed by _<playerId>) survive the
+        //    switch intact.  Calling deleteAllData() would nuke all per-account scoped data and
+        //    is the root cause of W/L / history resetting on every account switch (BUG2 FIX).
         CookieHelper.clearAll();
-        new Handler(Looper.getMainLooper()).post(() -> {
-            android.webkit.WebStorage.getInstance().deleteAllData();
-            if (gameWebView != null) gameWebView.clearCache(false);
-        });
+        if (gameWebView != null) {
+            gameWebView.evaluateJavascript(
+                "try{" +
+                "['et_pvp_session','et_pvp_match_history','et_pvp_solo_strategy'," +
+                "'et_pvp_log_entries','et_pvp_active_tab']" +
+                ".forEach(function(k){localStorage.removeItem(k);});" +
+                "}catch(e){}", null);
+        }
 
         // 4. Inject target account cookies
         String targetCookies = targetAccount.optString("cookies", "");
@@ -968,12 +990,24 @@ public class MainActivity extends AppCompatActivity {
             loginWebView.evaluateJavascript(
                 "(function(){" +
                 "  try{" +
-                // Any authenticated page has at least one player.php?pid= link
-                "    var l=document.querySelector('a[href*=\"player.php?pid=\"]');" +
-                "    if(!l)return null;" +
-                "    var m=(l.getAttribute('href')||'').match(/pid=(\\d+)/);" +
-                "    if(!m)return null;" +
-                "    var pid=m[1];" +
+                // L1 — scan ALL a[href*="player.php?pid="] links
+                "    var pid=null;" +
+                "    var _all=document.querySelectorAll('a[href*=\"player.php?pid=\"]');" +
+                "    for(var _i=0;_i<_all.length&&!pid;_i++){" +
+                "      var _m=(_all[_i].getAttribute('href')||'').match(/pid=(\\d+)/);" +
+                "      if(_m)pid=_m[1];" +
+                "    }" +
+                // L2 — current page URL carries the pid
+                "    if(!pid){var _um=location.href.match(/player\\.php[^#]*[?&]pid=(\\d+)/);if(_um)pid=_um[1];}" +
+                // L3 — any a[href*="player.php"] carrying pid in a different query layout
+                "    if(!pid){" +
+                "      var _wl=document.querySelectorAll('a[href*=\"player.php\"]');" +
+                "      for(var _i=0;_i<_wl.length&&!pid;_i++){" +
+                "        var _m2=(_wl[_i].getAttribute('href')||'').match(/[?&]pid=(\\d+)/);" +
+                "        if(_m2)pid=_m2[1];" +
+                "      }" +
+                "    }" +
+                "    if(!pid)return null;" +
                 // Name: try sidebar selectors first, then profile-page selectors, then the link text itself
                 "    var nameEl=document.querySelector('.small-name')" +
                 "      ||document.querySelector('.user-name')" +
@@ -1048,13 +1082,70 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                     } else {
-                        // Identity extraction failed — don't create a stub, just warn the user
-                        bridge.appendLog("warning", "Add account: couldn't identify player — make sure you are fully logged in on the site");
-                        runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
-                            "Could not identify account. Please sign in completely and try again.",
-                            android.widget.Toast.LENGTH_LONG).show());
+                        // L1-L3 found no pid — try L4: fetch /player.php and parse the redirect URL.
+                        // Authenticated users are redirected to player.php?pid=<id>, giving us the
+                        // player ID even on pages that have no sidebar or profile links (BUG1 FIX).
+                        bridge.appendLog("system", "Add account: L1-L3 found no pid — trying L4 fetch fallback…");
+                        loginWebView.evaluateJavascript(
+                            "window.__pvpmFetchPid=null;" +
+                            "fetch('/player.php',{method:'GET',credentials:'include',redirect:'follow'})" +
+                            ".then(function(r){var m=r.url.match(/[?&]pid=(\\d+)/);window.__pvpmFetchPid=m?m[1]:'';})" +
+                            ".catch(function(){window.__pvpmFetchPid='';});",
+                            null);
+                        // Poll after 3 s, then run cleanup regardless of result
+                        new Handler(Looper.getMainLooper()).postDelayed(() ->
+                            loginWebView.evaluateJavascript(
+                                "(function(){return window.__pvpmFetchPid!=null?String(window.__pvpmFetchPid):null;})()",
+                                fetchResult -> {
+                                    String fetchPid = (fetchResult != null && !fetchResult.equals("null"))
+                                        ? fetchResult.replace("\"", "").trim() : "";
+                                    if (!fetchPid.isEmpty()) {
+                                        bridge.appendLog("system", "Add account: L4 fetch resolved pid=" + fetchPid);
+                                        JSONObject existingL4 = accountStore.getAccount(fetchPid);
+                                        if (existingL4 != null) {
+                                            bridge.appendLog("system", "Account already added (L4 pid=" + fetchPid + ")");
+                                            runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
+                                                "Account already added (ID: " + fetchPid + ")",
+                                                android.widget.Toast.LENGTH_LONG).show());
+                                        } else {
+                                            try {
+                                                org.json.JSONObject newAccL4 = new org.json.JSONObject();
+                                                newAccL4.put("playerId",   fetchPid);
+                                                newAccL4.put("playerName", "Account " + fetchPid);
+                                                newAccL4.put("avatarUrl",  "");
+                                                newAccL4.put("level",      0);
+                                                newAccL4.put("cookies",    newCookies);
+                                                newAccL4.put("lastLogin",  System.currentTimeMillis());
+                                                accountStore.saveAccount(newAccL4);
+                                                bridge.appendLog("system", "New account saved via L4 fetch (ID: " + fetchPid + ") — name refreshed on next page load");
+                                            } catch (org.json.JSONException e4) {
+                                                bridge.appendLog("error", "Add account L4: save failed — " + e4.getMessage());
+                                            }
+                                        }
+                                    } else {
+                                        bridge.appendLog("warning", "Add account: all extraction layers failed — not fully logged in?");
+                                        runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
+                                            "Could not identify account. Please sign in completely and try again.",
+                                            android.widget.Toast.LENGTH_LONG).show());
+                                    }
+                                    // Cleanup — identical to the L1-L3 success path below
+                                    CookieHelper.clearAll();
+                                    if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
+                                        injectCookiesForAccount(savedCookiesForAddAccount);
+                                    }
+                                    savedCookiesForAddAccount = null;
+                                    bridge.setAddAccountMode(false);
+                                    updateAccountChip();
+                                    closeLoginOverlay();
+                                    if (uiWebView != null) {
+                                        new Handler(Looper.getMainLooper()).postDelayed(() ->
+                                            uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null), 300);
+                                    }
+                                }), 3000);
+                        // Return early — cleanup runs inside the L4 postDelayed callback above
+                        return;
                     }
-                    // Restore original account cookies regardless of success/failure
+                    // ── L1-L3 success path: restore cookies and close overlay ────────────
                     CookieHelper.clearAll();
                     if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
                         injectCookiesForAccount(savedCookiesForAddAccount);
