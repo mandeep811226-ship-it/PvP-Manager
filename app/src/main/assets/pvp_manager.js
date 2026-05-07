@@ -2288,11 +2288,21 @@
                 if (btd !== null && cur.baseTargetDmg !== btd) patch.baseTargetDmg = btd;
                 if (cc  !== null && cur.critChance    !== cc)  patch.critChance    = cc;
                 if (Object.keys(patch).length) {
-                    mem[actorUid] = Object.assign({}, cur, patch, {
-                        name:        actor.name || cur.name || null,
-                        lastMatchId: matchIdNum != null ? `pvp:${matchIdNum}` : (cur.lastMatchId || null)
-                    });
-                    changed = true;
+                    // Normalize stored matchId — support both spellings for backward compat
+                    const _storedAtkId = cur.lastMatchId || cur.lastMatchld || null;
+                    const _storedAtkNum = _storedAtkId
+                        ? (Number((_storedAtkId.match(/(\d+)$/) || [])[1]) || 0) : 0;
+                    const _isNewerAtk = matchIdNum === null || matchIdNum >= _storedAtkNum;
+                    if (_isNewerAtk) {
+                        const _newEntry = Object.assign({}, cur, patch, {
+                            name:        actor.name || cur.name || null,
+                            lastMatchId: matchIdNum != null ? `pvp:${matchIdNum}` : (_storedAtkId || null)
+                        });
+                        // Remove legacy typo key if present
+                        delete _newEntry.lastMatchld;
+                        mem[actorUid] = _newEntry;
+                        changed = true;
+                    }
                 }
             }
 
@@ -2303,11 +2313,21 @@
                 if (def !== null && cur.defenderScore  !== def) patch.defenderScore  = def;
                 if (dbb !== null && cur.baseDamageBack !== dbb) patch.baseDamageBack = dbb;
                 if (Object.keys(patch).length) {
-                    mem[targetUid] = Object.assign({}, cur, patch, {
-                        name:        target.name || cur.name || null,
-                        lastMatchId: matchIdNum != null ? `pvp:${matchIdNum}` : (cur.lastMatchId || null)
-                    });
-                    changed = true;
+                    // Normalize stored matchId — support both spellings for backward compat
+                    const _storedDefId = cur.lastMatchId || cur.lastMatchld || null;
+                    const _storedDefNum = _storedDefId
+                        ? (Number((_storedDefId.match(/(\d+)$/) || [])[1]) || 0) : 0;
+                    const _isNewerDef = matchIdNum === null || matchIdNum >= _storedDefNum;
+                    if (_isNewerDef) {
+                        const _newDefEntry = Object.assign({}, cur, patch, {
+                            name:        target.name || cur.name || null,
+                            lastMatchId: matchIdNum != null ? `pvp:${matchIdNum}` : (_storedDefId || null)
+                        });
+                        // Remove legacy typo key if present
+                        delete _newDefEntry.lastMatchld;
+                        mem[targetUid] = _newDefEntry;
+                        changed = true;
+                    }
                 }
             }
         }
@@ -2705,7 +2725,7 @@
                            style="flex:1; padding:9px; border-radius:8px; font-weight:bold; cursor:pointer;
                                   background:#e65100; color:#fff; border:1px solid #ff9800; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:12px;
                                   animation: pvpm-pulse 1.5s ease-in-out infinite;">
-                       ⏳ Stopping after match - press to stop now
+                       ⏳ Stopping After Match
                    </button>`
                 : `<button id="pvpm-stop"
                            style="flex:1; padding:9px; border-radius:8px; font-weight:bold; cursor:pointer;
@@ -3598,27 +3618,35 @@
             // whole match so one read here is enough.
             if (a && a.role) liveStat.myCls = a.role.toLowerCase();
             if (e && e.role) liveStat.enCls = e.role.toLowerCase();
-            // Also persist class into bls_memory so history expand panels
-            // can show CLASS for players we have fought before.
+            // Persist class, name, and initial hp/maxHp into bls_memory so history
+            // panels can show CLASS and so the export always has HP data even for
+            // players whose match logs haven't been fully processed yet.
             try {
                 const blsRaw = localStorage.getItem('bls_memory');
                 const blsMem = blsRaw ? JSON.parse(blsRaw) : {};
                 let blsChanged = false;
-                if (a && a.user_id && a.role) {
+                if (a && a.user_id) {
                     const uid = String(a.user_id);
                     const cur = blsMem[uid] || {};
-                    if (cur.playerClass !== a.role.toLowerCase()) {
-                        blsMem[uid] = Object.assign({}, cur, { playerClass: a.role.toLowerCase(), name: a.username || cur.name || null });
-                        blsChanged = true;
-                    }
+                    const upd = {};
+                    if (a.role)     upd.playerClass = a.role.toLowerCase();
+                    if (a.username) upd.name        = a.username;
+                    // Persist maxHp always (authoritative at match start); hp only if positive
+                    if (a.hp_max != null && Number(a.hp_max) > 0) upd.maxHp = Number(a.hp_max);
+                    if (a.hp     != null && Number(a.hp)     > 0) upd.hp    = Number(a.hp);
+                    blsMem[uid] = Object.assign({}, cur, upd);
+                    blsChanged = true;
                 }
-                if (e && e.user_id && e.role) {
+                if (e && e.user_id) {
                     const uid = String(e.user_id);
                     const cur = blsMem[uid] || {};
-                    if (cur.playerClass !== e.role.toLowerCase()) {
-                        blsMem[uid] = Object.assign({}, cur, { playerClass: e.role.toLowerCase(), name: e.username || cur.name || null });
-                        blsChanged = true;
-                    }
+                    const upd = {};
+                    if (e.role)     upd.playerClass = e.role.toLowerCase();
+                    if (e.username) upd.name        = e.username;
+                    if (e.hp_max != null && Number(e.hp_max) > 0) upd.maxHp = Number(e.hp_max);
+                    if (e.hp     != null && Number(e.hp)     > 0) upd.hp    = Number(e.hp);
+                    blsMem[uid] = Object.assign({}, cur, upd);
+                    blsChanged = true;
                 }
                 if (blsChanged) localStorage.setItem('bls_memory', JSON.stringify(blsMem));
             } catch (_) {}
