@@ -302,6 +302,17 @@ public class MainActivity extends AppCompatActivity {
      */
     public void switchToAccount(String playerId) {
         if (bridge == null) return;
+
+        // PATCH 3: Block account switching during an active battle to prevent
+        // state corruption, polling interruption, and scheduler desync.
+        if (bridge.isMatchActive()) {
+            Toast.makeText(this,
+                "Account switching is unavailable during an active battle.",
+                Toast.LENGTH_LONG).show();
+            bridge.appendLog("warning", "Account switch blocked — active battle in progress");
+            return;
+        }
+
         closeAccountFlyout();
 
         String currentId = accountStore.getActiveAccountId();
@@ -974,28 +985,37 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // Mark connected (single session)
+        // Mark session connected; SUCCESS state is deferred in add-account mode
+        // until we confirm the new account's identity.
         bridge.setConnected(true);
         bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
-        setConnectButtonState(ConnectState.SUCCESS);
 
         boolean wasAddingNew = addingNewAccount;
         addingNewAccount = false;
 
         if (wasAddingNew) {
-            // ── ADD ACCOUNT MODE: extract new identity, save account, restore original session ──
-            final String newCookies = cookies; // captured above (local var)
+            // ── ADD ACCOUNT MODE ────────────────────────────────────────────────────
+            // Show "Identifying…" while extraction runs; SUCCESS/FAILURE set below
+            // based on the outcome — button stays disabled until identity confirmed.
+            runOnUiThread(() -> {
+                if (btnSaveConnect != null) {
+                    btnSaveConnect.setText("Identifying…");
+                    btnSaveConnect.setEnabled(false);
+                }
+            });
+
+            final String newCookies = cookies;
             bridge.appendLog("system", "Add account: extracting identity from loginWebView…");
 
             loginWebView.evaluateJavascript(
                 "(function(){" +
                 "  try{" +
-                // L1 — scan ALL a[href*="player.php?pid="] links
-                "    var pid=null;" +
+                // L1 — scan ALL a[href*="player.php?pid="] links (works on any page with nav)
+                "    var pid=null,pidLink=null;" +
                 "    var _all=document.querySelectorAll('a[href*=\"player.php?pid=\"]');" +
                 "    for(var _i=0;_i<_all.length&&!pid;_i++){" +
                 "      var _m=(_all[_i].getAttribute('href')||'').match(/pid=(\\d+)/);" +
-                "      if(_m)pid=_m[1];" +
+                "      if(_m){pid=_m[1];pidLink=_all[_i];}" +
                 "    }" +
                 // L2 — current page URL carries the pid
                 "    if(!pid){var _um=location.href.match(/player\\.php[^#]*[?&]pid=(\\d+)/);if(_um)pid=_um[1];}" +
@@ -1004,11 +1024,11 @@ public class MainActivity extends AppCompatActivity {
                 "      var _wl=document.querySelectorAll('a[href*=\"player.php\"]');" +
                 "      for(var _i=0;_i<_wl.length&&!pid;_i++){" +
                 "        var _m2=(_wl[_i].getAttribute('href')||'').match(/[?&]pid=(\\d+)/);" +
-                "        if(_m2)pid=_m2[1];" +
+                "        if(_m2){pid=_m2[1];pidLink=_wl[_i];}" +
                 "      }" +
                 "    }" +
                 "    if(!pid)return null;" +
-                // Name: try sidebar selectors first, then profile-page selectors, then the link text itself
+                // Name: try sidebar selectors first, then profile-page selectors
                 "    var nameEl=document.querySelector('.small-name')" +
                 "      ||document.querySelector('.user-name')" +
                 "      ||document.querySelector('.profile-name')" +
@@ -1016,8 +1036,12 @@ public class MainActivity extends AppCompatActivity {
                 "      ||document.querySelector('h1.name')" +
                 "      ||document.querySelector('h2.name');" +
                 "    var name=nameEl?nameEl.textContent.trim():'';" +
-                // Fallback: use the link's own text if it looks like a player name (not a URL)
-                "    if(!name||name.length<1){var lt=(l.textContent||'').trim();if(lt&&lt.length>1&&!lt.startsWith('http'))name=lt;}" +
+                // Fallback: use the pidLink's own text if it looks like a name (not a URL)
+                // NOTE: use pidLink (the specific link we found pid from), NOT an undefined var
+                "    if((!name||name.length<1)&&pidLink){" +
+                "      var lt=(pidLink.textContent||'').trim();" +
+                "      if(lt&&lt.length>1&&!lt.startsWith('http'))name=lt;" +
+                "    }" +
                 "    if(!name||name.length<1)name='New Account';" +
                 // Avatar: try multiple selectors across all page layouts
                 "    var avaEl=document.querySelector('.small-ava img')" +
@@ -1036,8 +1060,7 @@ public class MainActivity extends AppCompatActivity {
                 "  }catch(e){return null;}" +
                 "})()",
                 result -> {
-                    // Parse identity (may be null if page doesn't show player info yet)
-                    String pid   = "new_" + System.currentTimeMillis();
+                    String pid   = null;
                     String pname = "New Account";
                     String pava  = "";
                     int    plvl  = 0;
@@ -1047,7 +1070,7 @@ public class MainActivity extends AppCompatActivity {
                             if (json.startsWith("\"")) json = json.substring(1, json.length()-1)
                                 .replace("\\\"", "\"").replace("\\\\", "\\");
                             org.json.JSONObject info = new org.json.JSONObject(json);
-                            pid   = info.optString("pid",  pid);
+                            pid   = info.optString("pid",  null);
                             pname = info.optString("name", pname);
                             pava  = info.optString("ava",  pava);
                             plvl  = info.optInt("lvl", 0);
@@ -1056,16 +1079,17 @@ public class MainActivity extends AppCompatActivity {
                     final String finalPid = pid, finalName = pname, finalAva = pava;
                     final int    finalLvl = plvl;
 
-                    // FIX 3: Only save if we extracted a real player ID (not a stub/fallback)
-                    boolean identityKnown = !finalPid.startsWith("new_") && !finalPid.isEmpty();
+                    boolean identityKnown = finalPid != null && !finalPid.isEmpty();
                     if (identityKnown) {
-                        // BUG 1 FIX: check for duplicate before saving
+                        // ── L1-L3 identity resolved ──────────────────────────────────
                         JSONObject existingAcc = accountStore.getAccount(finalPid);
                         if (existingAcc != null) {
                             bridge.appendLog("system", "Account already added: " + finalName + " (ID: " + finalPid + ")");
-                            runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
-                                "Account already added: " + finalName,
-                                android.widget.Toast.LENGTH_LONG).show());
+                            runOnUiThread(() -> {
+                                Toast.makeText(MainActivity.this,
+                                    "Account already added: " + finalName, Toast.LENGTH_LONG).show();
+                                setConnectButtonState(ConnectState.SUCCESS);
+                            });
                         } else {
                             try {
                                 org.json.JSONObject newAcc = new org.json.JSONObject();
@@ -1077,22 +1101,23 @@ public class MainActivity extends AppCompatActivity {
                                 newAcc.put("lastLogin",  System.currentTimeMillis());
                                 accountStore.saveAccount(newAcc);
                                 bridge.appendLog("system", "New account saved: " + finalName + " (ID: " + finalPid + ")");
+                                runOnUiThread(() -> setConnectButtonState(ConnectState.SUCCESS));
                             } catch (org.json.JSONException e) {
                                 bridge.appendLog("error", "Add account: save failed — " + e.getMessage());
+                                runOnUiThread(() -> setConnectButtonState(ConnectState.FAILURE));
                             }
                         }
+                        // Restore original session and close overlay
+                        _restoreAddAccountSession();
                     } else {
-                        // L1-L3 found no pid — try L4: fetch /player.php and parse the redirect URL.
-                        // Authenticated users are redirected to player.php?pid=<id>, giving us the
-                        // player ID even on pages that have no sidebar or profile links (BUG1 FIX).
-                        bridge.appendLog("system", "Add account: L1-L3 found no pid — trying L4 fetch fallback…");
+                        // ── L4: fetch /player.php — authenticated users redirect to ?pid=<id> ──
+                        bridge.appendLog("system", "Add account: L1-L3 found no pid — trying L4 fetch…");
                         loginWebView.evaluateJavascript(
                             "window.__pvpmFetchPid=null;" +
                             "fetch('/player.php',{method:'GET',credentials:'include',redirect:'follow'})" +
                             ".then(function(r){var m=r.url.match(/[?&]pid=(\\d+)/);window.__pvpmFetchPid=m?m[1]:'';})" +
                             ".catch(function(){window.__pvpmFetchPid='';});",
                             null);
-                        // Poll after 3 s, then run cleanup regardless of result
                         new Handler(Looper.getMainLooper()).postDelayed(() ->
                             loginWebView.evaluateJavascript(
                                 "(function(){return window.__pvpmFetchPid!=null?String(window.__pvpmFetchPid):null;})()",
@@ -1100,13 +1125,16 @@ public class MainActivity extends AppCompatActivity {
                                     String fetchPid = (fetchResult != null && !fetchResult.equals("null"))
                                         ? fetchResult.replace("\"", "").trim() : "";
                                     if (!fetchPid.isEmpty()) {
-                                        bridge.appendLog("system", "Add account: L4 fetch resolved pid=" + fetchPid);
+                                        bridge.appendLog("system", "Add account: L4 resolved pid=" + fetchPid);
                                         JSONObject existingL4 = accountStore.getAccount(fetchPid);
                                         if (existingL4 != null) {
                                             bridge.appendLog("system", "Account already added (L4 pid=" + fetchPid + ")");
-                                            runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
-                                                "Account already added (ID: " + fetchPid + ")",
-                                                android.widget.Toast.LENGTH_LONG).show());
+                                            runOnUiThread(() -> {
+                                                Toast.makeText(MainActivity.this,
+                                                    "Account already added (ID: " + fetchPid + ")",
+                                                    Toast.LENGTH_LONG).show();
+                                                setConnectButtonState(ConnectState.SUCCESS);
+                                            });
                                         } else {
                                             try {
                                                 org.json.JSONObject newAccL4 = new org.json.JSONObject();
@@ -1117,52 +1145,31 @@ public class MainActivity extends AppCompatActivity {
                                                 newAccL4.put("cookies",    newCookies);
                                                 newAccL4.put("lastLogin",  System.currentTimeMillis());
                                                 accountStore.saveAccount(newAccL4);
-                                                bridge.appendLog("system", "New account saved via L4 fetch (ID: " + fetchPid + ") — name refreshed on next page load");
+                                                bridge.appendLog("system", "New account saved via L4 (ID: " + fetchPid + ")");
+                                                runOnUiThread(() -> setConnectButtonState(ConnectState.SUCCESS));
                                             } catch (org.json.JSONException e4) {
                                                 bridge.appendLog("error", "Add account L4: save failed — " + e4.getMessage());
+                                                runOnUiThread(() -> setConnectButtonState(ConnectState.FAILURE));
                                             }
                                         }
                                     } else {
-                                        bridge.appendLog("warning", "Add account: all extraction layers failed — not fully logged in?");
-                                        runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
-                                            "Could not identify account. Please sign in completely and try again.",
-                                            android.widget.Toast.LENGTH_LONG).show());
+                                        bridge.appendLog("warning", "Add account: all layers failed");
+                                        runOnUiThread(() -> {
+                                            Toast.makeText(MainActivity.this,
+                                                "Could not identify account. Please sign in completely and try again.",
+                                                Toast.LENGTH_LONG).show();
+                                            setConnectButtonState(ConnectState.FAILURE);
+                                        });
                                     }
-                                    // Cleanup — identical to the L1-L3 success path below
-                                    CookieHelper.clearAll();
-                                    if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
-                                        injectCookiesForAccount(savedCookiesForAddAccount);
-                                    }
-                                    savedCookiesForAddAccount = null;
-                                    bridge.setAddAccountMode(false);
-                                    updateAccountChip();
-                                    closeLoginOverlay();
-                                    if (uiWebView != null) {
-                                        new Handler(Looper.getMainLooper()).postDelayed(() ->
-                                            uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null), 300);
-                                    }
+                                    _restoreAddAccountSession();
                                 }), 3000);
-                        // Return early — cleanup runs inside the L4 postDelayed callback above
-                        return;
-                    }
-                    // ── L1-L3 success path: restore cookies and close overlay ────────────
-                    CookieHelper.clearAll();
-                    if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
-                        injectCookiesForAccount(savedCookiesForAddAccount);
-                    }
-                    savedCookiesForAddAccount = null;
-                    // Restore bridge connected state for current account
-                    bridge.setAddAccountMode(false);
-                    updateAccountChip();
-                    closeLoginOverlay();
-                    if (uiWebView != null) {
-                        new Handler(Looper.getMainLooper()).postDelayed(() ->
-                            uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null), 300);
+                        return; // cleanup runs inside the L4 callback above
                     }
                 }
             );
         } else {
             // ── NORMAL LOGIN MODE ─────────────────────────────────────────────────────
+            setConnectButtonState(ConnectState.SUCCESS);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 closeLoginOverlay();
                 if (uiWebView != null) {
@@ -1184,6 +1191,25 @@ public class MainActivity extends AppCompatActivity {
                 }
             }, 1200);
         }
+    }
+
+    // ── Add-account session restore ───────────────────────────────────────────
+    /** Shared cleanup called from both L1-L3 and L4 success/fail paths. */
+    private void _restoreAddAccountSession() {
+        CookieHelper.clearAll();
+        if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
+            injectCookiesForAccount(savedCookiesForAddAccount);
+        }
+        savedCookiesForAddAccount = null;
+        bridge.setAddAccountMode(false);
+        runOnUiThread(() -> {
+            updateAccountChip();
+            closeLoginOverlay();
+            if (uiWebView != null) {
+                new Handler(Looper.getMainLooper()).postDelayed(() ->
+                    uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null), 300);
+            }
+        });
     }
 
     // ── Overlay helpers ───────────────────────────────────────────────────────
