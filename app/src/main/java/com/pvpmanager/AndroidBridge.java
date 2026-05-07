@@ -312,19 +312,27 @@ public class AndroidBridge {
 
             // While adding a new account, force disconnected so the UI shows the login state
             if (addAccountModeActive) {
-                JSONObject state = new JSONObject();
-                state.put("connected", false);
-                state.put("running",   false);
-                state.put("accountCount", accountStore.getAccountCount());
-                state.put("config", new JSONObject("{"debugLogs":false,"pollIntervalMs":2500}"));
-                state.put("strategy", new JSONObject("{"enabled":false,"entries":[]}"));
-                state.put("logs", "");
-                state.put("match", new JSONObject("{"active":false}"));
-                state.put("stats", new JSONObject());
-                state.put("skillList", new JSONArray());
-                state.put("matchHistory", new JSONArray());
-                state.put("battleStats", new JSONObject());
-                return state.toString();
+                JSONObject cfg = new JSONObject();
+                cfg.put("debugLogs", false);
+                cfg.put("pollIntervalMs", 2500);
+                JSONObject strat = new JSONObject();
+                strat.put("enabled", false);
+                strat.put("entries", new JSONArray());
+                JSONObject matchObj = new JSONObject();
+                matchObj.put("active", false);
+                JSONObject earlyState = new JSONObject();
+                earlyState.put("connected",    false);
+                earlyState.put("running",      false);
+                earlyState.put("accountCount", accountStore.getAccountCount());
+                earlyState.put("config",       cfg);
+                earlyState.put("strategy",     strat);
+                earlyState.put("logs",         "");
+                earlyState.put("match",        matchObj);
+                earlyState.put("stats",        new JSONObject());
+                earlyState.put("skillList",    new JSONArray());
+                earlyState.put("matchHistory", new JSONArray());
+                earlyState.put("battleStats",  new JSONObject());
+                return earlyState.toString();
             }
 
             boolean connected = isSessionVerified();
