@@ -314,7 +314,7 @@ public class AndroidBridge {
             if (addAccountModeActive) {
                 JSONObject cfg = new JSONObject();
                 cfg.put("debugLogs", false);
-                cfg.put("pollIntervalMs", 2500);
+                cfg.put("pollIntervalMs", 5000);
                 JSONObject strat = new JSONObject();
                 strat.put("enabled", false);
                 strat.put("entries", new JSONArray());
@@ -368,8 +368,8 @@ public class AndroidBridge {
 
             JSONObject config = new JSONObject();
             config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
-            int pollMs = 1500;
-            try { pollMs = Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")); }
+            int pollMs = 5000;
+            try { pollMs = Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "5000")); }
             catch (NumberFormatException ignored) {}
             config.put("pollIntervalMs", pollMs);
             state.put("config", config);
