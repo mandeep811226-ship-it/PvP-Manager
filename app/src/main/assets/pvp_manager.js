@@ -312,6 +312,51 @@
     }
 
     /**
+     * Extract the player's display name from the page DOM.
+     * Returns the name string, or null if not resolvable.
+     * Used to enrich the account record saved on first identity extraction.
+     */
+    function resolveActivePlayerName() {
+        try {
+            const nameEl = document.querySelector('.small-name')
+                || document.querySelector('.user-name')
+                || document.querySelector('.profile-name')
+                || document.querySelector('.player-name')
+                || document.querySelector('h1.name')
+                || document.querySelector('h2.name');
+            if (nameEl) {
+                const t = nameEl.textContent.trim();
+                if (t.length > 0) return t;
+            }
+            // Fallback: use the link text of the profile link if it looks like a name
+            const link = document.querySelector('a[href*="player.php?pid="]');
+            if (link) {
+                const lt = (link.textContent || '').trim();
+                if (lt.length > 1 && !lt.startsWith('http')) return lt;
+            }
+            return null;
+        } catch (e) { return null; }
+    }
+
+    /**
+     * Extract the player's avatar URL from the page DOM.
+     * Returns an absolute URL string, or null.
+     */
+    function resolveActivePlayerAvatar() {
+        try {
+            const avaEl = document.querySelector('.small-ava img')
+                || document.querySelector('.user-avatar img')
+                || document.querySelector('.profile-avatar img')
+                || document.querySelector('.avatar img')
+                || document.querySelector('img[src*="avatars/user_"]');
+            if (!avaEl) return null;
+            const src = avaEl.getAttribute('src') || '';
+            if (!src) return null;
+            return src.startsWith('http') ? src : 'https://demonicscans.org/' + src.replace(/^\//, '');
+        } catch (e) { return null; }
+    }
+
+    /**
      * The active player ID for this page-load.  Resolved once during init.
      * May be null if the page loaded before the DOM had the player link.
      */
@@ -4048,6 +4093,9 @@
             winCount   = 0;
             lossCount  = 0;
             scopedRemove(SESSION_KEY);
+            // Also clear match history so the UI W/L pills (computed from history) drop to 0
+            matchHistory = [];
+            persistHistory();
             renderGUI();
             addLog('Session W/L reset.', { color: '#aaa' });
             window.__pvpmState = buildAndroidState();
