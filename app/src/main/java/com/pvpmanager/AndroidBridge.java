@@ -204,11 +204,24 @@ public class AndroidBridge {
             gameWebView.evaluateJavascript(
                 "(function(){" +
                 "  try {" +
-                "    var link=document.querySelector('a[href*=\"player.php?pid=\"]');" +
-                "    if(!link) return null;" +
-                "    var m=(link.getAttribute('href')||'').match(/pid=(\\d+)/);" +
-                "    if(!m) return null;" +
-                "    var pid=m[1];" +
+                // L1 — scan ALL a[href*="player.php?pid="] links (sidebar, nav, profile widgets)
+                "    var pid=null;" +
+                "    var _links=document.querySelectorAll('a[href*=\"player.php?pid=\"]');" +
+                "    for(var _li=0;_li<_links.length&&!pid;_li++){" +
+                "      var _m=(_links[_li].getAttribute('href')||'').match(/pid=(\\d+)/);" +
+                "      if(_m)pid=_m[1];" +
+                "    }" +
+                // L2 — current page URL carries the pid
+                "    if(!pid){var _um=location.href.match(/player\\.php[^#]*[?&]pid=(\\d+)/);if(_um)pid=_um[1];}" +
+                // L3 — any a[href*="player.php"] carrying pid in a different query layout
+                "    if(!pid){" +
+                "      var _wl=document.querySelectorAll('a[href*=\"player.php\"]');" +
+                "      for(var _li=0;_li<_wl.length&&!pid;_li++){" +
+                "        var _m2=(_wl[_li].getAttribute('href')||'').match(/[?&]pid=(\\d+)/);" +
+                "        if(_m2)pid=_m2[1];" +
+                "      }" +
+                "    }" +
+                "    if(!pid) return null;" +
                 "    var nameEl=document.querySelector('.small-name')" +
                 "      ||document.querySelector('.user-name')" +
                 "      ||document.querySelector('.profile-name')" +
