@@ -968,17 +968,35 @@ public class MainActivity extends AppCompatActivity {
             loginWebView.evaluateJavascript(
                 "(function(){" +
                 "  try{" +
+                // Any authenticated page has at least one player.php?pid= link
                 "    var l=document.querySelector('a[href*=\"player.php?pid=\"]');" +
-                "    if(!l) return null;" +
+                "    if(!l)return null;" +
                 "    var m=(l.getAttribute('href')||'').match(/pid=(\\d+)/);" +
-                "    if(!m) return null;" +
+                "    if(!m)return null;" +
                 "    var pid=m[1];" +
-                "    var nameEl=document.querySelector('.small-name');" +
-                "    var avaEl=document.querySelector('.small-ava img');" +
-                "    var lvlEl=document.querySelector('.small-level');" +
-                "    var name=nameEl?nameEl.textContent.trim():'New Account';" +
+                // Name: try sidebar selectors first, then profile-page selectors, then the link text itself
+                "    var nameEl=document.querySelector('.small-name')" +
+                "      ||document.querySelector('.user-name')" +
+                "      ||document.querySelector('.profile-name')" +
+                "      ||document.querySelector('.player-name')" +
+                "      ||document.querySelector('h1.name')" +
+                "      ||document.querySelector('h2.name');" +
+                "    var name=nameEl?nameEl.textContent.trim():'';" +
+                // Fallback: use the link's own text if it looks like a player name (not a URL)
+                "    if(!name||name.length<1){var lt=(l.textContent||'').trim();if(lt&&lt.length>1&&!lt.startsWith('http'))name=lt;}" +
+                "    if(!name||name.length<1)name='New Account';" +
+                // Avatar: try multiple selectors across all page layouts
+                "    var avaEl=document.querySelector('.small-ava img')" +
+                "      ||document.querySelector('.user-avatar img')" +
+                "      ||document.querySelector('.profile-avatar img')" +
+                "      ||document.querySelector('.avatar img')" +
+                "      ||document.querySelector('img[src*=\"avatars/user_\"]');" +
                 "    var avaRaw=avaEl?(avaEl.getAttribute('src')||''):'';" +
                 "    var ava=avaRaw?(avaRaw.startsWith('http')?avaRaw:'https://demonicscans.org/'+avaRaw.replace(/^\\//, '')):'';" +
+                // Level: try multiple selectors
+                "    var lvlEl=document.querySelector('.small-level')" +
+                "      ||document.querySelector('.user-level')" +
+                "      ||document.querySelector('.player-level');" +
                 "    var lvl=0;if(lvlEl){var lm=lvlEl.textContent.match(/(\\d+)/);if(lm)lvl=parseInt(lm[1]);}" +
                 "    return JSON.stringify({pid:pid,name:name,ava:ava,lvl:lvl});" +
                 "  }catch(e){return null;}" +
