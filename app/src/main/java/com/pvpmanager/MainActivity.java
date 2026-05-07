@@ -933,7 +933,7 @@ public class MainActivity extends AppCompatActivity {
             loginWebView.evaluateJavascript(
                 "(function(){" +
                 "  try{" +
-                "    var l=document.querySelector('a[href*="player.php?pid="]');" +
+                "    var l=document.querySelector('a[href*=\"player.php?pid=\"]');" +
                 "    if(!l) return null;" +
                 "    var m=(l.getAttribute('href')||'').match(/pid=(\\d+)/);" +
                 "    if(!m) return null;" +
@@ -957,8 +957,8 @@ public class MainActivity extends AppCompatActivity {
                     if (result != null && !result.equals("null")) {
                         try {
                             String json = result;
-                            if (json.startsWith(""")) json = json.substring(1, json.length()-1)
-                                .replace("\"",""").replace("\\","\");
+                            if (json.startsWith("\"")) json = json.substring(1, json.length()-1)
+                                .replace("\\\"", "\"").replace("\\\\", "\\");
                             org.json.JSONObject info = new org.json.JSONObject(json);
                             pid   = info.optString("pid",  pid);
                             pname = info.optString("name", pname);
