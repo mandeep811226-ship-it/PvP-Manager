@@ -278,6 +278,99 @@
     function runFeature() {
 
     /* =========================================================
+        ACCOUNT-SCOPED STORAGE
+        activePlayerId is resolved ONCE at startup by reading the game
+        page DOM (same selector AndroidBridge uses).  All gameplay keys
+        are then stored as  baseKey + '_' + activePlayerId  so that
+        switching accounts never mixes data.
+
+        GLOBAL keys (never scoped):
+          bls_memory, et_pvp_debug_logs, et_pvp_manager_enabled,
+          et_pvp_panel_pos, et_pvp_minimized, et_pvp_log_limit,
+          et_pvp_persist_logs, et_pvp_history_limit,
+          et_pvp_af_coordinator_enabled, et_drawer_group_pvp_collapsed,
+          veyra_af_*, MASTER_ENABLED_KEY, DEBUG_LOGS_KEY,
+          EMPIRE_GROUP_COLLAPSE_KEY
+
+        PER-ACCOUNT keys (scoped):
+          SESSION_KEY, HISTORY_STORE_KEY, STRATEGY_KEY,
+          LOG_STORE_KEY, ACTIVE_TAB_KEY, SKILL_IMG_KEY
+    ========================================================= */
+
+    /**
+     * Extract the active player ID from the game page DOM.
+     * Same selector chain AndroidBridge.extractCurrentAccount() uses.
+     * Returns a string like "133841", or null if not available.
+     */
+    function resolveActivePlayerId() {
+        try {
+            const link = document.querySelector('a[href*="player.php?pid="]');
+            if (!link) return null;
+            const m = (link.getAttribute('href') || '').match(/pid=(\d+)/);
+            return m ? m[1] : null;
+        } catch (e) { return null; }
+    }
+
+    /**
+     * The active player ID for this page-load.  Resolved once during init.
+     * May be null if the page loaded before the DOM had the player link.
+     */
+    let _activePlayerId = resolveActivePlayerId();
+
+    /**
+     * Return a storage key scoped to the active account.
+     * If no player ID is known yet, falls back to the bare base key so
+     * nothing is silently dropped (backward-compatible with pre-isolation saves).
+     * Example:  scopedKey('et_pvp_session')  →  'et_pvp_session_133841'
+     */
+    function scopedKey(baseKey) {
+        return _activePlayerId ? baseKey + '_' + _activePlayerId : baseKey;
+    }
+
+    /**
+     * Read a per-account localStorage value with automatic one-time migration.
+     * If the scoped key is missing but the bare (legacy) key exists, copies it
+     * to the scoped key, then removes the legacy key, to prevent cross-account
+     * contamination going forward.
+     * Returns the stored string, or null.
+     */
+    function scopedGet(baseKey) {
+        const sk = scopedKey(baseKey);
+        if (sk === baseKey) return localStorage.getItem(baseKey); // no player ID yet
+        let val = localStorage.getItem(sk);
+        if (val === null) {
+            // Migration: legacy global key → scoped key (runs at most once per account per key)
+            const legacy = localStorage.getItem(baseKey);
+            if (legacy !== null) {
+                try { localStorage.setItem(sk, legacy); } catch (_) {}
+                // Do NOT remove the legacy key here — other accounts that haven't
+                // been seen yet might still need it as their migration source.
+                // It will be overwritten once those accounts load.
+                val = legacy;
+            }
+        }
+        return val;
+    }
+
+    /**
+     * Write a per-account localStorage value.
+     */
+    function scopedSet(baseKey, value) {
+        try { localStorage.setItem(scopedKey(baseKey), value); } catch (_) {}
+    }
+
+    /**
+     * Remove a per-account localStorage key (scoped + bare legacy).
+     */
+    function scopedRemove(baseKey) {
+        try {
+            localStorage.removeItem(scopedKey(baseKey));
+            // Also remove legacy bare key if player ID is known (migration cleanup)
+            if (_activePlayerId) localStorage.removeItem(baseKey);
+        } catch (_) {}
+    }
+
+    /* =========================================================
         CONSTANTS
     ========================================================= */
     const MATCHMAKE_URL    = 'https://demonicscans.org/pvp_matchmake.php';
@@ -296,11 +389,9 @@
     const PERSIST_LOG_KEY  = 'et_pvp_persist_logs';  // whether to persist logs across refreshes
     const SESSION_KEY      = 'et_pvp_session';        // persisted W/L session data (JSON)
     const HISTORY_STORE_KEY = 'et_pvp_match_history';  // persisted match history (JSON)
-    const HISTORY_LIMIT_KEY = 'et_pvp_history_limit';  // user-configured max history entries
-    const HISTORY_LIMIT     = 200;                     // default max match history entries
+    const MAX_HISTORY       = 5000;                    // rolling cap — oldest entries auto-deleted
 
     const BASE_URL                = 'https://demonicscans.org';
-    const AF_COORD_ENABLED_KEY    = 'et_pvp_af_coordinator_enabled';
 
     // Solo Strategy
     const STRATEGY_KEY            = 'et_pvp_solo_strategy';   // JSON: { enabled, entries[] }
@@ -359,95 +450,8 @@
        Keep identical across PvE Manager, Dungeon Manager, and PvP Manager
        so all scripts agree on state across tabs via reference counting.
     ====================== */
-    const AF_KEY_ACTIVE   = 'veyra_af_active_runs';     // { [runId]: lastSeenMs }
-    const AF_KEY_ORIGINAL = 'veyra_af_original_state';  // '1' | '0'
-    const AF_LOCK_NAME    = 'veyra_af_coordinator';
-    const AF_STALE_MS     = 15 * 60 * 1000;
-    const AF_HEARTBEAT_MS = 60 * 1000;
+    // Auto-farm coordinator removed — not needed in standalone PvP Manager
 
-    function afReadMap() {
-        try { return JSON.parse(localStorage.getItem(AF_KEY_ACTIVE) || '{}') || {}; }
-        catch { return {}; }
-    }
-    function afWriteMap(m) {
-        if (!m || Object.keys(m).length === 0) localStorage.removeItem(AF_KEY_ACTIVE);
-        else localStorage.setItem(AF_KEY_ACTIVE, JSON.stringify(m));
-    }
-    function afPrune(m) {
-        const now = Date.now();
-        for (const k of Object.keys(m)) if (now - (m[k] || 0) > AF_STALE_MS) delete m[k];
-        return m;
-    }
-    async function afWithLock(fn) {
-        if (navigator.locks && navigator.locks.request) {
-            return navigator.locks.request(AF_LOCK_NAME, { mode: 'exclusive' }, fn);
-        }
-        await new Promise(r => setTimeout(r, Math.random() * 50));
-        return fn();
-    }
-    async function afAcquire(runId) {
-        return afWithLock(async () => {
-            const map = afPrune(afReadMap());
-            const wasEmpty = Object.keys(map).length === 0;
-            let originalWasOn = null;
-            if (wasEmpty) {
-                const isOn = await fetchAutoFarmEnabled();
-                originalWasOn = isOn;
-                localStorage.setItem(AF_KEY_ORIGINAL, isOn === true ? '1' : '0');
-                if (isOn === true) await setAutoFarmEnabled(false);
-            } else {
-                originalWasOn = localStorage.getItem(AF_KEY_ORIGINAL) === '1';
-            }
-            map[runId] = Date.now();
-            afWriteMap(map);
-            return { wasEmpty, originalWasOn };
-        });
-    }
-    async function afHeartbeat(runId) {
-        return afWithLock(async () => {
-            const map = afPrune(afReadMap());
-            if (map[runId]) { map[runId] = Date.now(); afWriteMap(map); }
-        });
-    }
-    async function afRelease(runId) {
-        return afWithLock(async () => {
-            const map = afPrune(afReadMap());
-            delete map[runId];
-            afWriteMap(map);
-            if (Object.keys(map).length === 0) {
-                const orig = localStorage.getItem(AF_KEY_ORIGINAL) === '1';
-                localStorage.removeItem(AF_KEY_ORIGINAL);
-                if (orig) {
-                    const ok = await setAutoFarmEnabled(true);
-                    return { restored: true, ok };
-                }
-                return { restored: false, ok: true };
-            }
-            return { restored: false, ok: true };
-        });
-    }
-
-    async function fetchAutoFarmEnabled() {
-        try {
-            const r = await fetch(`${BASE_URL}/auto_farm_status.php?_=${Date.now()}`, { credentials: 'same-origin', cache: 'no-store' });
-            if (!r.ok) return null;
-            const j = await r.json();
-            if (!j || !j.ok || !j.settings) return null;
-            return Number(j.settings.IS_ENABLED || 0) === 1;
-        } catch { return null; }
-    }
-    async function setAutoFarmEnabled(enabled) {
-        try {
-            const body = new URLSearchParams({ action: 'toggle', enabled: enabled ? '1' : '0' });
-            const r = await fetch(`${BASE_URL}/auto_farm_actions.php`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: body.toString(),
-            });
-            return r.ok;
-        } catch { return false; }
-    }
 
     /* =========================================================
         STATE
@@ -462,27 +466,25 @@
 
     // Load persisted session
     try {
-        const sess = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+        const sess = JSON.parse(scopedGet(SESSION_KEY) || 'null');
         if (sess) { matchCount = sess.m || 0; winCount = sess.w || 0; lossCount = sess.l || 0; }
     } catch (_) {}
 
     function saveSession() {
-        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ m: matchCount, w: winCount, l: lossCount })); } catch (_) {}
+        scopedSet(SESSION_KEY, JSON.stringify({ m: matchCount, w: winCount, l: lossCount }));
     }
     function resetSession() {
         matchCount = 0; winCount = 0; lossCount = 0;
-        localStorage.removeItem(SESSION_KEY);
+        scopedRemove(SESSION_KEY);
         renderGUI();
     }
     let currentMatchId = null;
     let logLimit   = Math.min(parseInt(localStorage.getItem(LOG_LIMIT_KEY), 10) || LOG_LIMIT, 2000);
     let persistLogsEnabled = localStorage.getItem(PERSIST_LOG_KEY) !== 'false'; // default true
-    let historyLimit = parseInt(localStorage.getItem(HISTORY_LIMIT_KEY), 10) || HISTORY_LIMIT;
-    let autoFarmCoordinatorEnabled = localStorage.getItem(AF_COORD_ENABLED_KEY) !== 'false'; // default true
 
     // Solo Strategy state
     let currentTab     = (() => {
-        const v = localStorage.getItem(ACTIVE_TAB_KEY);
+        const v = scopedGet(ACTIVE_TAB_KEY);
         return (v === 'strategy' || v === 'settings') ? v : 'battle';
     })();
     let strategyData   = loadStrategy();      // { enabled, entries: [...] }
@@ -1309,15 +1311,13 @@
     /* -- Log persistence helpers -- */
     function persistLogs() {
         if (!persistLogsEnabled) return;
-        try {
-            localStorage.setItem(LOG_STORE_KEY, JSON.stringify(logHistory));
-        } catch (_) {}
+        scopedSet(LOG_STORE_KEY, JSON.stringify(logHistory));
     }
 
     function loadPersistedLogs() {
         if (!persistLogsEnabled) return;
         try {
-            const raw = localStorage.getItem(LOG_STORE_KEY);
+            const raw = scopedGet(LOG_STORE_KEY);
             if (!raw) return;
             const entries = JSON.parse(raw);
             if (!Array.isArray(entries) || entries.length === 0) return;
@@ -1346,19 +1346,17 @@
 
     /* -- Match history persistence helpers -- */
     function persistHistory() {
-        try {
-            localStorage.setItem(HISTORY_STORE_KEY, JSON.stringify(matchHistory));
-        } catch (_) {}
+        scopedSet(HISTORY_STORE_KEY, JSON.stringify(matchHistory));
     }
 
     function loadPersistedHistory() {
         try {
-            const raw = localStorage.getItem(HISTORY_STORE_KEY);
+            const raw = scopedGet(HISTORY_STORE_KEY);
             if (!raw) return;
             const entries = JSON.parse(raw);
             if (!Array.isArray(entries)) return;
-            matchHistory = entries.length > historyLimit ? entries.slice(-historyLimit) : entries;
-            if (entries.length > historyLimit) persistHistory();
+            matchHistory = entries.length > MAX_HISTORY ? entries.slice(-MAX_HISTORY) : entries;
+            if (entries.length > MAX_HISTORY) persistHistory();
         } catch (_) {}
     }
 
@@ -1370,7 +1368,7 @@
             entry.pointsDelta = 0;
         }
         matchHistory.push(entry);
-        if (matchHistory.length > historyLimit) matchHistory.shift();
+        if (matchHistory.length > MAX_HISTORY) matchHistory.shift();
         persistHistory();
     }
 
@@ -1381,54 +1379,147 @@
         if (historyModalEl) { historyModalEl.remove(); historyModalEl = null; }
 
         const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:20000;
-            display:flex; align-items:center; justify-content:center;
-        `;
+        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:20000; display:flex; align-items:center; justify-content:center;';
         overlay.addEventListener('click', e => { if (e.target === overlay) closeHistoryModal(); });
 
         const modal = document.createElement('div');
-        modal.style.cssText = `
-            background:#1c1c1c; border:1px solid #444; border-radius:1.2em; padding:18px;
-            width:720px; max-width:92vw; max-height:80vh; display:flex; flex-direction:column;
-            font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:12px; color:#ddd; box-shadow:0 0 30px rgba(0,0,0,0.8);
-        `;
+        modal.style.cssText = [
+            'background:#1c1c1c; border:1px solid #444; border-radius:1.2em; padding:18px;',
+            'width:720px; max-width:92vw; max-height:80vh; display:flex; flex-direction:column;',
+            'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;',
+            'font-size:12px; color:#ddd; box-shadow:0 0 30px rgba(0,0,0,0.8);'
+        ].join('');
 
-        // Header
+        // ── Header ──
         const header = document.createElement('div');
-        header.style.cssText = 'display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #333;';
-        header.innerHTML = `
-            <span style="font-size:14px; font-weight:bold; color:#2196f3;">📊 Match History <span style="color:#666; font-weight:normal; font-size:11px;">(${matchHistory.length} match${matchHistory.length !== 1 ? 'es' : ''})</span></span>
-            <div style="display:flex; gap:12px; align-items:center;">
-                <span id="pvpm-hist-clear" style="cursor:pointer; font-size:11px; color:#777; text-decoration:underline;">Clear History</span>
-                <span id="pvpm-hist-close" style="cursor:pointer; font-size:18px; color:#666; font-weight:bold; line-height:1;">×</span>
-            </div>
-        `;
+        header.style.cssText = 'display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #333;';
+        const hLeft = document.createElement('span');
+        hLeft.style.cssText = 'font-size:14px; font-weight:bold; color:#2196f3;';
+        hLeft.textContent = '\u{1F4CA} Match History';
+        const hRight = document.createElement('div');
+        hRight.style.cssText = 'display:flex; gap:12px; align-items:center;';
+        const clearBtn = document.createElement('span');
+        clearBtn.id = 'pvpm-hist-clear';
+        clearBtn.style.cssText = 'cursor:pointer; font-size:11px; color:#777; text-decoration:underline;';
+        clearBtn.textContent = 'Clear History';
+        const closeBtn = document.createElement('span');
+        closeBtn.id = 'pvpm-hist-close';
+        closeBtn.style.cssText = 'cursor:pointer; font-size:18px; color:#666; font-weight:bold; line-height:1;';
+        closeBtn.textContent = '\u00d7';
+        hRight.append(clearBtn, closeBtn);
+        header.append(hLeft, hRight);
         modal.appendChild(header);
 
-        // List container
+        // ── Search bar ──
+        const searchWrap = document.createElement('div');
+        searchWrap.style.marginBottom = '6px';
+        const searchInput = document.createElement('input');
+        searchInput.id = 'pvpm-hist-search';
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search opponent, result, rank\u2026';
+        searchInput.style.cssText = [
+            'width:100%; box-sizing:border-box; padding:7px 10px; border-radius:7px;',
+            'border:1px solid #333; background:#111; color:#ddd; font-size:12px; outline:none;',
+            'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;'
+        ].join('');
+        searchWrap.appendChild(searchInput);
+        modal.appendChild(searchWrap);
+
+        // ── Status row: "Total: X Battles        Max: 5,000" ──
+        const statusRow = document.createElement('div');
+        statusRow.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:3px 1px 8px 1px; font-size:11px;';
+        const countLabel = document.createElement('span');
+        countLabel.style.color = '#666';
+        const countNum = document.createElement('span');
+        countNum.id = 'pvpm-hist-count-num';
+        countNum.style.cssText = 'color:#aaa; font-weight:bold;';
+        countNum.textContent = matchHistory.length.toLocaleString();
+        countLabel.append('Total: ', countNum, ' Battles');
+        const maxLabel = document.createElement('span');
+        maxLabel.style.color = '#444';
+        const maxNum = document.createElement('span');
+        maxNum.style.cssText = 'color:#555; font-weight:bold;';
+        maxNum.textContent = MAX_HISTORY.toLocaleString();
+        maxLabel.append('Max: ', maxNum);
+        statusRow.append(countLabel, maxLabel);
+        modal.appendChild(statusRow);
+
+        // ── List container (paginated) ──
         const listContainer = document.createElement('div');
         listContainer.style.cssText = 'overflow-y:auto; flex:1; min-height:0;';
-
-        if (matchHistory.length === 0) {
-            listContainer.innerHTML = '<div style="text-align:center; color:#555; padding:40px 0;">No matches recorded yet.</div>';
-        } else {
-            // Build list efficiently: create a document fragment, iterate newest-first
-            const frag = document.createDocumentFragment();
-            for (let i = matchHistory.length - 1; i >= 0; i--) {
-                frag.appendChild(renderHistoryRow(matchHistory[i], i));
-            }
-            listContainer.appendChild(frag);
-        }
-
         modal.appendChild(listContainer);
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         historyModalEl = overlay;
 
+        // Paginated rendering — PAGE_SIZE rows at a time, load more on scroll
+        const PAGE_SIZE = 50;
+        let _filteredIdxs = [];
+        let _renderedCount = 0;
+
+        function buildFiltered(query) {
+            const q = (query || '').trim().toLowerCase();
+            _filteredIdxs = [];
+            for (let i = matchHistory.length - 1; i >= 0; i--) {
+                if (!q) { _filteredIdxs.push(i); continue; }
+                const ent = matchHistory[i]; const en = ent.enemy || {};
+                const hay = [ent.result || '', en.name || '', en.rank || '',
+                             en.role || '', en.level || '', en.party || '',
+                             String(ent.matchId || '')].join(' ').toLowerCase();
+                if (hay.includes(q)) _filteredIdxs.push(i);
+            }
+        }
+
+        function renderNextPage() {
+            const sl = _filteredIdxs.slice(_renderedCount, _renderedCount + PAGE_SIZE);
+            if (!sl.length) return;
+            const frag = document.createDocumentFragment();
+            for (const idx of sl) frag.appendChild(renderHistoryRow(matchHistory[idx], idx));
+            listContainer.appendChild(frag);
+            _renderedCount += sl.length;
+        }
+
+        function updateCountLabel(query) {
+            const q = (query || '').trim();
+            countNum.textContent = q
+                ? _filteredIdxs.length.toLocaleString() + ' / ' + matchHistory.length.toLocaleString()
+                : matchHistory.length.toLocaleString();
+        }
+
+        function refreshList(query) {
+            listContainer.innerHTML = '';
+            _renderedCount = 0;
+            buildFiltered(query);
+            updateCountLabel(query);
+            if (_filteredIdxs.length === 0) {
+                const msg = document.createElement('div');
+                msg.style.cssText = 'text-align:center; color:#555; padding:40px 0;';
+                msg.textContent = matchHistory.length === 0 ? 'No matches recorded yet.' : 'No matches found for that search.';
+                listContainer.appendChild(msg);
+                return;
+            }
+            renderNextPage();
+        }
+
+        // Infinite scroll
+        listContainer.addEventListener('scroll', () => {
+            if (listContainer.scrollHeight - listContainer.scrollTop - listContainer.clientHeight < 200
+                && _renderedCount < _filteredIdxs.length) renderNextPage();
+        }, { passive: true });
+
+        // Initial render
+        refreshList('');
+
+        // Search (debounced 200ms)
+        let _debounce = null;
+        searchInput.addEventListener('input', e => {
+            clearTimeout(_debounce);
+            _debounce = setTimeout(() => refreshList(e.target.value), 200);
+        });
+
         // Handlers
-        modal.querySelector('#pvpm-hist-close').onclick = closeHistoryModal;
-        modal.querySelector('#pvpm-hist-clear').onclick = () => {
+        closeBtn.onclick = closeHistoryModal;
+        clearBtn.onclick = () => {
             if (!confirm('Clear all match history?')) return;
             matchHistory = [];
             persistHistory();
@@ -1777,7 +1868,7 @@
 
     function loadStrategy() {
         try {
-            const raw = localStorage.getItem(STRATEGY_KEY);
+            const raw = scopedGet(STRATEGY_KEY);
             if (!raw) return STRATEGY_DEFAULT();
             const parsed = JSON.parse(raw);
             if (!parsed || typeof parsed !== 'object') return STRATEGY_DEFAULT();
@@ -1791,7 +1882,7 @@
     }
 
     function saveStrategy() {
-        try { localStorage.setItem(STRATEGY_KEY, JSON.stringify(strategyData)); } catch (e) {}
+        scopedSet(STRATEGY_KEY, JSON.stringify(strategyData));
     }
 
     /**
@@ -1873,7 +1964,7 @@
      */
     function loadSkillImageMap() {
         try {
-            const raw = localStorage.getItem(SKILL_IMG_KEY);
+            const raw = scopedGet(SKILL_IMG_KEY);
             if (!raw) return {};
             const m = JSON.parse(raw);
             return (m && typeof m === 'object') ? m : {};
@@ -1909,7 +2000,7 @@
                 }
                 if (map[id] !== abs) { map[id] = abs; changed = true; }
             }
-            if (changed) localStorage.setItem(SKILL_IMG_KEY, JSON.stringify(map));
+            if (changed) scopedSet(SKILL_IMG_KEY, JSON.stringify(map));
             return changed;
         } catch (e) { return false; }
     }
@@ -2635,26 +2726,8 @@
                            style="cursor:pointer; accent-color:#2e7d32;">
                     <span style="color:#666; font-size:11px;">Keep logs across page refreshes (very heavy!)</span>
                 </div>
-                <div class="pvpm-settings-row" style="display:flex; align-items:center; gap:10px; font-size:12px; margin-top:8px;">
-                    <label style="color:#999; white-space:nowrap;">Max match history entries:</label>
-                    <input id="pvpm-history-limit-input" type="number" min="10" max="10000" value="${historyLimit}"
-                           style="width:80px; padding:4px 8px; border-radius:6px; border:1px solid #444;
-                                  background:#111; color:#ddd; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:12px;">
-                    <button id="pvpm-history-limit-save"
-                            style="padding:4px 10px; border-radius:6px; cursor:pointer;
-                                   background:#2e7d32; color:#fff; border:1px solid #388e3c; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:11px;">
-                        Save
-                    </button>
-                    <span id="pvpm-history-limit-msg" style="color:#66bb6a; font-size:11px;"></span>
-                </div>
-                <div class="pvpm-settings-row" style="display:flex; align-items:flex-start; gap:10px; font-size:12px; margin-top:8px;">
-                    <input id="pvpm-af-coord-toggle" type="checkbox" ${autoFarmCoordinatorEnabled ? 'checked' : ''}
-                           style="cursor:pointer; accent-color:#2e7d32; margin-top:2px; flex-shrink:0;">
-                    <div>
-                        <label for="pvpm-af-coord-toggle" style="color:#999; cursor:pointer;">Coordinate Auto Farm with PvE / Dungeon Manager</label>
-                        <div style="color:#555; font-size:11px; margin-top:2px;">Recommended. Turn Auto Farm OFF during runs and restore it after, cooperating with PvE Manager and Dungeon Manager if they're open in other tabs. Turn this OFF only if you want PvP Manager to ignore Auto Farm entirely - in that case you must manage it yourself and concurrent runs from other scripts may conflict.</div>
-                    </div>
-                </div>
+
+
             </div>
         `;
 
@@ -2727,7 +2800,7 @@
                 const next = el.getAttribute('data-tab');
                 if (!next || next === currentTab) return;
                 currentTab = next;
-                try { localStorage.setItem(ACTIVE_TAB_KEY, currentTab); } catch (e) {}
+                scopedSet(ACTIVE_TAB_KEY, currentTab);
                 renderGUI();
             });
         });
@@ -2948,32 +3021,15 @@
                 persistLogsEnabled = e.target.checked;
                 localStorage.setItem(PERSIST_LOG_KEY, String(persistLogsEnabled));
                 if (!persistLogsEnabled) {
-                    localStorage.removeItem(LOG_STORE_KEY);
+                    scopedRemove(LOG_STORE_KEY);
                 } else {
                     persistLogs();
                 }
             };
 
-            document.getElementById('pvpm-history-limit-save').onclick = () => {
-                const inp = document.getElementById('pvpm-history-limit-input');
-                const msg = document.getElementById('pvpm-history-limit-msg');
-                const val = parseInt(inp.value, 10);
-                if (isNaN(val) || val < 10 || val > 10000) {
-                    if (msg) { msg.style.color = '#ef5350'; msg.textContent = 'Enter 10-10000'; }
-                    return;
-                }
-                historyLimit = val;
-                localStorage.setItem(HISTORY_LIMIT_KEY, String(historyLimit));
-                // Trim existing history if over new limit
-                while (matchHistory.length > historyLimit) matchHistory.shift();
-                persistHistory();
-                if (msg) { msg.style.color = '#66bb6a'; msg.textContent = 'Saved!'; setTimeout(() => { if (msg) msg.textContent = ''; }, 1500); }
-            };
 
-            document.getElementById('pvpm-af-coord-toggle').onchange = (e) => {
-                autoFarmCoordinatorEnabled = e.target.checked;
-                localStorage.setItem(AF_COORD_ENABLED_KEY, String(autoFarmCoordinatorEnabled));
-            };
+
+
         }
 
         document.getElementById('pvpm-copylog').onclick = () => {
@@ -3312,48 +3368,8 @@
         AUTOMATION LOOP
     ========================================================= */
 
-    async function runWithAutoFarmGuard(innerRunFn) {
-        if (!autoFarmCoordinatorEnabled) {
-            await innerRunFn();
-            return;
-        }
-
-        const runId = `pvp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-        let acquired = null;
-        try { acquired = await afAcquire(runId); }
-        catch (e) { addLog(`⚠️ Auto Farm coordinator error (acquire): ${e.message}`); }
-
-        if (acquired) {
-            if (acquired.wasEmpty && acquired.originalWasOn === true) {
-                addLog('⏸️ Auto Farm was ON - turned OFF for run (will restore after).');
-            } else if (acquired.wasEmpty && acquired.originalWasOn === null) {
-                addLog('⚠️ Could not determine Auto Farm state - proceeding.');
-            } else if (!acquired.wasEmpty) {
-                addLog('🔗 Auto Farm already managed by another run - joined coordinator.');
-            }
-        }
-
-        const hbHandle = setInterval(() => { afHeartbeat(runId).catch(() => {}); }, AF_HEARTBEAT_MS);
-
-        try {
-            await innerRunFn();
-        } finally {
-            clearInterval(hbHandle);
-            try {
-                const released = await afRelease(runId);
-                if (released && released.restored) {
-                    if (released.ok) addLog('▶️ Auto Farm restored to ON.');
-                    else             addLog('⚠️ Failed to restore Auto Farm to ON - please re-enable manually.');
-                }
-            } catch (e) {
-                addLog(`⚠️ Auto Farm coordinator error (release): ${e.message}`);
-            }
-        }
-    }
-
     async function runAutomation() {
-        await runWithAutoFarmGuard(async () => {
+        await (async () => {
             if (running) return;
             running        = true;
             stopFlag       = false;
@@ -3443,7 +3459,7 @@
             renderGUI();
             addLog('Run stopped.', { color: '#aaa' });
             _keepAlive.stop();
-        });
+        })();
     }
 
     /**
@@ -3784,6 +3800,10 @@
         INIT
     ========================================================= */
 
+    // Re-resolve active player ID now that the DOM is fully available
+    // (runFeature runs after DOMContentLoaded so the player link should exist)
+    _activePlayerId = resolveActivePlayerId() || _activePlayerId;
+
     // Read current stats from the live page DOM (no extra request)
     readStatsFromDoc(document);
 
@@ -3823,6 +3843,46 @@
     });
 
     window.addEventListener('resize', clampToViewport);
+
+    /* ── Account-switch hot-reload ─────────────────────────────────────────
+       AndroidBridge sets window.__pvpmActivePlayerId when the user switches
+       accounts.  We poll for it (storage events don't fire in same-tab
+       writes) and reload all scoped state so the UI reflects the new account
+       without requiring a page refresh.
+    ──────────────────────────────────────────────────────────────────────── */
+    setInterval(function _accountSwitchWatcher() {
+        try {
+            const wid = window.__pvpmActivePlayerId;
+            if (!wid || wid === _activePlayerId) return;
+            _activePlayerId = wid;
+
+            // Reload all per-account state from new scoped keys
+            try {
+                const sess = JSON.parse(scopedGet(SESSION_KEY) || 'null');
+                matchCount = (sess && sess.m) || 0;
+                winCount   = (sess && sess.w) || 0;
+                lossCount  = (sess && sess.l) || 0;
+            } catch (_) { matchCount = 0; winCount = 0; lossCount = 0; }
+
+            strategyData = loadStrategy();
+
+            matchHistory = [];
+            loadPersistedHistory();
+
+            logHistory = [];
+            _programmaticScroll = true;
+            logBox.innerHTML = '';
+            _programmaticScroll = false;
+            _logPinned = true;
+            loadPersistedLogs();
+
+            const v = scopedGet(ACTIVE_TAB_KEY);
+            currentTab = (v === 'strategy' || v === 'settings') ? v : 'battle';
+
+            addLog('Account switched — state reloaded for player ' + _activePlayerId + '.', { color: '#81d4fa' });
+            renderGUI();
+        } catch (e) {}
+    }, 1000);
 
     // ESC to collapse
     document.addEventListener('keydown', e => {
@@ -3947,25 +4007,6 @@
         } catch (e) {}
     };
 
-
-    /** Surrender the current active match — called by Android.surrenderMatch(). */
-    window.__pvpmSurrenderMatch = async function() {
-        if (!currentMatchId) {
-            addLog('Surrender: no active match ID.', { color: '#ffb74d' });
-            return;
-        }
-        try {
-            addLog('⚑ Surrender request sent for match ' + currentMatchId + '…', { color: '#ffb74d' });
-            await pvpPost(BATTLE_ACT_URL, {
-                match_id: currentMatchId,
-                action:   'surrender'
-            });
-            addLog('✓ Surrender posted — waiting for match result.', { color: '#ffb74d' });
-        } catch (e) {
-            addLog('Surrender failed: ' + (e && e.message ? e.message : 'unknown error'), { color: '#ef5350' });
-        }
-    };
-
     // Refresh __pvpmState on a fast interval so Android always reads fresh data.
     // 800ms is well under Android's 1500ms poll — no extra network calls.
     setInterval(function() {
@@ -3980,4 +4021,3 @@
         boot();
     }
 })();
-
