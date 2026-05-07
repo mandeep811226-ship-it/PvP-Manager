@@ -3947,6 +3947,25 @@
         } catch (e) {}
     };
 
+
+    /** Surrender the current active match — called by Android.surrenderMatch(). */
+    window.__pvpmSurrenderMatch = async function() {
+        if (!currentMatchId) {
+            addLog('Surrender: no active match ID.', { color: '#ffb74d' });
+            return;
+        }
+        try {
+            addLog('⚑ Surrender request sent for match ' + currentMatchId + '…', { color: '#ffb74d' });
+            await pvpPost(BATTLE_ACT_URL, {
+                match_id: currentMatchId,
+                action:   'surrender'
+            });
+            addLog('✓ Surrender posted — waiting for match result.', { color: '#ffb74d' });
+        } catch (e) {
+            addLog('Surrender failed: ' + (e && e.message ? e.message : 'unknown error'), { color: '#ef5350' });
+        }
+    };
+
     // Refresh __pvpmState on a fast interval so Android always reads fresh data.
     // 800ms is well under Android's 1500ms poll — no extra network calls.
     setInterval(function() {
