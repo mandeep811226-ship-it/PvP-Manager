@@ -304,10 +304,23 @@
      */
     function resolveActivePlayerId() {
         try {
-            const link = document.querySelector('a[href*="player.php?pid="]');
-            if (!link) return null;
-            const m = (link.getAttribute('href') || '').match(/pid=(\d+)/);
-            return m ? m[1] : null;
+            // L1 — scan ALL a[href*="player.php?pid="] links (sidebar, nav, profile widgets)
+            const links = document.querySelectorAll('a[href*="player.php?pid="]');
+            for (let i = 0; i < links.length; i++) {
+                const m = (links[i].getAttribute('href') || '').match(/pid=(\d+)/);
+                if (m) return m[1];
+            }
+            // L2 — current page URL carries the pid (e.g. /player.php?pid=133841)
+            const urlM = location.href.match(/player\.php[^#]*[?&]pid=(\d+)/);
+            if (urlM) return urlM[1];
+            // L3 — any a[href*="player.php"] carrying pid in a different query layout
+            const wideLinks = document.querySelectorAll('a[href*="player.php"]');
+            for (let i = 0; i < wideLinks.length; i++) {
+                const href = wideLinks[i].getAttribute('href') || '';
+                const m2 = href.match(/[?&]pid=(\d+)/);
+                if (m2) return m2[1];
+            }
+            return null;
         } catch (e) { return null; }
     }
 
@@ -359,8 +372,13 @@
     /**
      * The active player ID for this page-load.  Resolved once during init.
      * May be null if the page loaded before the DOM had the player link.
+     * _accountSwitchWatcher will re-resolve it from DOM or window.__pvpmActivePlayerId
+     * and reload all scoped state once identity becomes available.
      */
     let _activePlayerId = resolveActivePlayerId();
+    // True when we initialised without a known player ID — triggers a state reload
+    // in _accountSwitchWatcher once identity is first resolved.
+    let _identityWasNullAtInit = !_activePlayerId;
 
     /**
      * Return a storage key scoped to the active account.
@@ -1665,7 +1683,7 @@
     const COLLAPSED_W = 90;
 
     const STATUS_COLORS = {
-        IDLE:    '#f44336',		//9e9e9e
+        IDLE:    '#f44336',             //9e9e9e
         RUNNING: '#4caf50',
         BATTLE:  '#2196f3',
     };
@@ -3333,91 +3351,91 @@
         return `${name}${lvRolePart}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
     }
 
-		/** Fetch both player profiles in parallel and log the match intro as 5 animated lines.
-		 *  The entire intro sequence completes within ~2 seconds. */
-		async function logMatchPlayers(state) {
-				const ally  = state.teams?.ally?.players_by_num?.['1'];
-				const enemy = state.teams?.enemy?.players_by_num?.['1'];
-				if (!ally || !enemy) return;
+                /** Fetch both player profiles in parallel and log the match intro as 5 animated lines.
+                 *  The entire intro sequence completes within ~2 seconds. */
+                async function logMatchPlayers(state) {
+                                const ally  = state.teams?.ally?.players_by_num?.['1'];
+                                const enemy = state.teams?.enemy?.players_by_num?.['1'];
+                                if (!ally || !enemy) return;
 
-				// Fetch both profiles concurrently
-				const [allyProfile, enemyProfile] = await Promise.all([
-						fetchPlayerProfile(ally.user_id),
-						fetchPlayerProfile(enemy.user_id)
-				]);
+                                // Fetch both profiles concurrently
+                                const [allyProfile, enemyProfile] = await Promise.all([
+                                                fetchPlayerProfile(ally.user_id),
+                                                fetchPlayerProfile(enemy.user_id)
+                                ]);
 
-				// Populate HP bar avatars now that we have profile data
-				setHpBarAvatars(
-					ally.user_id, enemy.user_id,
-					allyProfile?.avatarUrl || null,
-					enemyProfile?.avatarUrl || null
-				);
+                                // Populate HP bar avatars now that we have profile data
+                                setHpBarAvatars(
+                                        ally.user_id, enemy.user_id,
+                                        allyProfile?.avatarUrl || null,
+                                        enemyProfile?.avatarUrl || null
+                                );
 
-				// Capture data for match history (consumed when match ends)
-				pendingMatchCapture = {
-					enemy: {
-						name: enemy.username || `User ${enemy.user_id}`,
-						uid: enemy.user_id || null,
-						level: enemyProfile?.level || null,
-						role: enemy.role || null,
-						rank: enemyProfile?.pvpRank || null,
-						points: enemyProfile?.pvpPoints || null,
-						party: enemyProfile?.pvpParty || null,
-						avatarUrl: enemyProfile?.avatarUrl || null,
-					},
-					pointsBefore: statPoints !== '-' ? parseInt(String(statPoints).replace(/,/g, ''), 10) || null : null,
-				};
+                                // Capture data for match history (consumed when match ends)
+                                pendingMatchCapture = {
+                                        enemy: {
+                                                name: enemy.username || `User ${enemy.user_id}`,
+                                                uid: enemy.user_id || null,
+                                                level: enemyProfile?.level || null,
+                                                role: enemy.role || null,
+                                                rank: enemyProfile?.pvpRank || null,
+                                                points: enemyProfile?.pvpPoints || null,
+                                                party: enemyProfile?.pvpParty || null,
+                                                avatarUrl: enemyProfile?.avatarUrl || null,
+                                        },
+                                        pointsBefore: statPoints !== '-' ? parseInt(String(statPoints).replace(/,/g, ''), 10) || null : null,
+                                };
 
-				const [introLineTop, introLineBottom] = randomBattleIntroPair();
+                                const [introLineTop, introLineBottom] = randomBattleIntroPair();
 
-				// ── Animated intro sequence (~2s total) ──
-				// Line 1: top intro banner  (0ms-350ms reveal, then 50ms pause)
-				await addLogTypewriter(introLineTop, {
-						html: `<span style="color:#ffb74d; font-weight:bold; letter-spacing:1px;">── ${escapeHtml(formatBannerText(introLineTop))} ──</span>`,
-						color: '#ffb74d', noTimestamp: true
-				}, 350);
-				await sleep(50);
+                                // ── Animated intro sequence (~2s total) ──
+                                // Line 1: top intro banner  (0ms-350ms reveal, then 50ms pause)
+                                await addLogTypewriter(introLineTop, {
+                                                html: `<span style="color:#ffb74d; font-weight:bold; letter-spacing:1px;">── ${escapeHtml(formatBannerText(introLineTop))} ──</span>`,
+                                                color: '#ffb74d', noTimestamp: true
+                                }, 350);
+                                await sleep(50);
 
-				// Line 2: ally player info  (400ms-700ms reveal, then 50ms pause)
-				const allyPlain = buildPlayerPlain(ally, allyProfile);
-				const allyHtml  = `<span style="color:#42a5f5;">${buildPlayerHtml(ally, allyProfile)}</span>`;
-				await addLogTypewriter(allyPlain, { html: allyHtml, color: '#e3f2fd', noTimestamp: true }, 300);
-				await sleep(50);
+                                // Line 2: ally player info  (400ms-700ms reveal, then 50ms pause)
+                                const allyPlain = buildPlayerPlain(ally, allyProfile);
+                                const allyHtml  = `<span style="color:#42a5f5;">${buildPlayerHtml(ally, allyProfile)}</span>`;
+                                await addLogTypewriter(allyPlain, { html: allyHtml, color: '#e3f2fd', noTimestamp: true }, 300);
+                                await sleep(50);
 
-				// Line 3: VERSUS banner     (750ms-1100ms reveal, then 100ms pause)
-				await addLogTypewriter('── V E R S U S ──', {
-						html: '<span style="color:#ffb74d; font-weight:bold; letter-spacing:2px;">── V E R S U S ──</span>',
-						color: '#ffb74d', noTimestamp: true
-				}, 350);
-				await sleep(100);
+                                // Line 3: VERSUS banner     (750ms-1100ms reveal, then 100ms pause)
+                                await addLogTypewriter('── V E R S U S ──', {
+                                                html: '<span style="color:#ffb74d; font-weight:bold; letter-spacing:2px;">── V E R S U S ──</span>',
+                                                color: '#ffb74d', noTimestamp: true
+                                }, 350);
+                                await sleep(100);
 
-				// Line 4: enemy player info (1200ms-1500ms reveal, then 50ms pause)
-				const enemyPlain = buildPlayerPlain(enemy, enemyProfile);
-				const enemyHtml  = `<span style="color:#ef5350;">${buildPlayerHtml(enemy, enemyProfile)}</span>`;
-				await addLogTypewriter(enemyPlain, { html: enemyHtml, color: '#e3f2fd', noTimestamp: true }, 300);
-				await sleep(50);
+                                // Line 4: enemy player info (1200ms-1500ms reveal, then 50ms pause)
+                                const enemyPlain = buildPlayerPlain(enemy, enemyProfile);
+                                const enemyHtml  = `<span style="color:#ef5350;">${buildPlayerHtml(enemy, enemyProfile)}</span>`;
+                                await addLogTypewriter(enemyPlain, { html: enemyHtml, color: '#e3f2fd', noTimestamp: true }, 300);
+                                await sleep(50);
 
-				// Line 5: bottom intro banner (1550ms-1900ms reveal, then burst flash)
-				await addLogTypewriter(introLineBottom, {
-						html: `<span style="color:#ffb74d; font-weight:bold; letter-spacing:1px;">── ${escapeHtml(formatBannerText(introLineBottom))} ──</span>`,
-						color: '#ffb74d', noTimestamp: true
-				}, 350);
-				// Apply a burst/glow flash to the final line - purely cosmetic CSS
-				// animation, adds no await time to the sequence.
-				{
-					const lastDiv = logBox.lastElementChild;
-					if (lastDiv) {
-						const span = lastDiv.querySelector('span');
-						if (span) {
-							span.style.animation = 'pvpm-intro-burst 0.5s ease-out';
-							span.addEventListener('animationend', function handler() {
-								span.removeEventListener('animationend', handler);
-								span.style.animation = '';
-							});
-						}
-					}
-				}
-		}
+                                // Line 5: bottom intro banner (1550ms-1900ms reveal, then burst flash)
+                                await addLogTypewriter(introLineBottom, {
+                                                html: `<span style="color:#ffb74d; font-weight:bold; letter-spacing:1px;">── ${escapeHtml(formatBannerText(introLineBottom))} ──</span>`,
+                                                color: '#ffb74d', noTimestamp: true
+                                }, 350);
+                                // Apply a burst/glow flash to the final line - purely cosmetic CSS
+                                // animation, adds no await time to the sequence.
+                                {
+                                        const lastDiv = logBox.lastElementChild;
+                                        if (lastDiv) {
+                                                const span = lastDiv.querySelector('span');
+                                                if (span) {
+                                                        span.style.animation = 'pvpm-intro-burst 0.5s ease-out';
+                                                        span.addEventListener('animationend', function handler() {
+                                                                span.removeEventListener('animationend', handler);
+                                                                span.style.animation = '';
+                                                        });
+                                                }
+                                        }
+                                }
+                }
 
     /* =========================================================
         AUTOMATION LOOP
@@ -3905,37 +3923,60 @@
        writes) and reload all scoped state so the UI reflects the new account
        without requiring a page refresh.
     ──────────────────────────────────────────────────────────────────────── */
+    /* Reload all per-account in-memory state from the scoped localStorage keys
+       for _activePlayerId.  Called on account switch AND on first identity
+       resolution (when the script initialised before the DOM had the player link). */
+    function _reloadScopedState(reason) {
+        try {
+            const sess = JSON.parse(scopedGet(SESSION_KEY) || 'null');
+            matchCount = (sess && sess.m) || 0;
+            winCount   = (sess && sess.w) || 0;
+            lossCount  = (sess && sess.l) || 0;
+        } catch (_) { matchCount = 0; winCount = 0; lossCount = 0; }
+
+        strategyData = loadStrategy();
+
+        matchHistory = [];
+        loadPersistedHistory();
+
+        logHistory = [];
+        _programmaticScroll = true;
+        logBox.innerHTML = '';
+        _programmaticScroll = false;
+        _logPinned = true;
+        loadPersistedLogs();
+
+        const v = scopedGet(ACTIVE_TAB_KEY);
+        currentTab = (v === 'strategy' || v === 'settings') ? v : 'battle';
+
+        const msg = reason === 'identity-resolved'
+            ? 'Identity resolved — state loaded for player ' + _activePlayerId + '.'
+            : 'Account switched — state reloaded for player ' + _activePlayerId + '.';
+        addLog(msg, { color: '#81d4fa' });
+        renderGUI();
+    }
+
     setInterval(function _accountSwitchWatcher() {
         try {
+            // ── Android-provided identity (account switch OR initial injection) ──────
             const wid = window.__pvpmActivePlayerId;
-            if (!wid || wid === _activePlayerId) return;
-            _activePlayerId = wid;
-
-            // Reload all per-account state from new scoped keys
-            try {
-                const sess = JSON.parse(scopedGet(SESSION_KEY) || 'null');
-                matchCount = (sess && sess.m) || 0;
-                winCount   = (sess && sess.w) || 0;
-                lossCount  = (sess && sess.l) || 0;
-            } catch (_) { matchCount = 0; winCount = 0; lossCount = 0; }
-
-            strategyData = loadStrategy();
-
-            matchHistory = [];
-            loadPersistedHistory();
-
-            logHistory = [];
-            _programmaticScroll = true;
-            logBox.innerHTML = '';
-            _programmaticScroll = false;
-            _logPinned = true;
-            loadPersistedLogs();
-
-            const v = scopedGet(ACTIVE_TAB_KEY);
-            currentTab = (v === 'strategy' || v === 'settings') ? v : 'battle';
-
-            addLog('Account switched — state reloaded for player ' + _activePlayerId + '.', { color: '#81d4fa' });
-            renderGUI();
+            if (wid && wid !== _activePlayerId) {
+                const wasNull = (_activePlayerId === null || _activePlayerId === undefined);
+                _activePlayerId = wid;
+                _identityWasNullAtInit = false;
+                _reloadScopedState(wasNull ? 'identity-resolved' : 'account-switched');
+                return;
+            }
+            // ── DOM re-resolution when identity was unavailable at script init ───────
+            // Keeps working on pages that load the sidebar asynchronously.
+            if (_identityWasNullAtInit && !_activePlayerId) {
+                const fromDom = resolveActivePlayerId();
+                if (fromDom) {
+                    _activePlayerId = fromDom;
+                    _identityWasNullAtInit = false;
+                    _reloadScopedState('identity-resolved');
+                }
+            }
         } catch (e) {}
     }, 1000);
 
