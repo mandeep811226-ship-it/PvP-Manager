@@ -24,6 +24,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.FileOutputStream;
 
+import android.os.Environment;
+import android.widget.Toast;
+
 public class AndroidBridge {
 
     // ── Global (not per-account) prefs keys ───────────────────────────────────
@@ -665,29 +668,93 @@ public class AndroidBridge {
     public void exportBlsMemory(String jsonString) {
         mainHandler.post(() -> {
             try {
-                java.io.File dir = context.getExternalCacheDir();
-                if (dir == null) dir = context.getCacheDir();
-                String filename = "bls_memory_" + System.currentTimeMillis() + ".json";
-                java.io.File file = new java.io.File(dir, filename);
-                try (OutputStream os = new FileOutputStream(file)) {
-                    JSONObject obj = new JSONObject(jsonString);
-                    os.write(obj.toString(2).getBytes("UTF-8"));
+                // ── Build clean export structure ──────────────────────────────
+                JSONObject raw = new JSONObject(jsonString);
+                JSONArray exportArr = new JSONArray();
+                java.util.Iterator<String> keys = raw.keys();
+                while (keys.hasNext()) {
+                    String uid = keys.next();
+                    JSONObject entry = raw.optJSONObject(uid);
+                    if (entry == null) continue;
+
+                    // Normalize lastMatchId — support legacy "lastMatchld" typo
+                    String matchId = entry.optString("lastMatchId", null);
+                    if (matchId == null || matchId.isEmpty())
+                        matchId = entry.optString("lastMatchld", null);
+
+                    JSONObject clean = new JSONObject();
+                    clean.put("playerId", uid);
+                    String name = entry.optString("name", null);
+                    if (name != null && !name.isEmpty()) clean.put("name", name);
+                    String cls = entry.optString("playerClass", null);
+                    if (cls != null && !cls.isEmpty()) clean.put("class", cls);
+                    if (entry.has("hp"))    clean.put("hp",    entry.optInt("hp",    0));
+                    if (entry.has("maxHp")) clean.put("maxHp", entry.optInt("maxHp", 0));
+
+                    JSONObject combat = new JSONObject();
+                    if (entry.has("attackerScore"))  combat.put("attackerScore",  entry.optDouble("attackerScore",  0));
+                    if (entry.has("defenderScore"))  combat.put("defenderScore",  entry.optDouble("defenderScore",  0));
+                    if (entry.has("baseTargetDmg"))  combat.put("baseTargetDmg",  entry.optInt("baseTargetDmg",    0));
+                    if (entry.has("baseDamageBack"))  combat.put("baseDamageBack", entry.optInt("baseDamageBack",   0));
+                    if (entry.has("critChance"))      combat.put("critChance",     entry.optDouble("critChance",    0));
+                    if (combat.length() > 0) clean.put("combatStats", combat);
+
+                    if (matchId != null && !matchId.isEmpty()) clean.put("lastMatchId", matchId);
+                    exportArr.put(clean);
                 }
-                Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
-                    context, context.getPackageName() + ".fileprovider", file);
-                Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                shareIntent.setType("application/json");
-                shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
-                shareIntent.putExtra(Intent.EXTRA_SUBJECT, "BLS Memory Export");
-                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                Intent chooser = Intent.createChooser(shareIntent, "Save BLS Memory");
-                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(chooser);
-                appendLog("system", "BLS exported: " + filename);
+
+                String exportJson = exportArr.toString(2);
+                String filename   = "bls_memory_" + System.currentTimeMillis() + ".json";
+
+                // ── Write directly to Downloads/PvP Manager/ ─────────────────
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    // Android 10+ — MediaStore (no WRITE_EXTERNAL_STORAGE needed)
+                    android.content.ContentValues cv = new android.content.ContentValues();
+                    cv.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename);
+                    cv.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/json");
+                    cv.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                           Environment.DIRECTORY_DOWNLOADS + "/PvP Manager");
+                    android.net.Uri uri = context.getContentResolver().insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                    if (uri == null) throw new Exception("MediaStore insert returned null");
+                    try (OutputStream os = context.getContentResolver().openOutputStream(uri)) {
+                        if (os == null) throw new Exception("Could not open output stream");
+                        os.write(exportJson.getBytes("UTF-8"));
+                    }
+                } else {
+                    // Android 9 and below — direct file write
+                    java.io.File downloadsDir = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS);
+                    java.io.File pvpDir = new java.io.File(downloadsDir, "PvP Manager");
+                    if (!pvpDir.exists()) pvpDir.mkdirs();
+                    java.io.File file = new java.io.File(pvpDir, filename);
+                    try (OutputStream os = new FileOutputStream(file)) {
+                        os.write(exportJson.getBytes("UTF-8"));
+                    }
+                }
+
+                Toast.makeText(context, "BLS exported to Downloads/PvP Manager", Toast.LENGTH_LONG).show();
+                appendLog("system", "BLS exported: " + filename + " (" + exportArr.length() + " players)");
             } catch (Exception e) {
                 appendLog("error", "BLS export failed: " + e.getMessage());
+                Toast.makeText(context, "BLS export failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    /**
+     * Returns true if a PvP match is currently active, by reading the
+     * last-known cached live state from SharedPreferences. Used by
+     * switchToAccount() to block mid-battle account switching.
+     */
+    public boolean isMatchActive() {
+        String cached = getStringScoped(KEY_CACHED_LIVE, null);
+        if (cached == null || cached.isEmpty()) return false;
+        try {
+            JSONObject live  = new JSONObject(cached);
+            JSONObject match = live.optJSONObject("match");
+            return match != null && match.optBoolean("active", false);
+        } catch (JSONException e) { return false; }
     }
 
     public void deliverBlsFileContent(InputStream is) {
