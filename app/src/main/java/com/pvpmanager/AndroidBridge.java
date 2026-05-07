@@ -45,6 +45,8 @@ public class AndroidBridge {
     // ── BLS reverse-sync ─────────────────────────────────────────────────────
     private static final int    BLS_SYNC_INTERVAL_MS = 15_000;
     private volatile     String lastBlsSnapshot      = null;
+    /** True while the user is adding a new account — forces getState() to report disconnected. */
+    private volatile     boolean addAccountModeActive = false;
 
     private final Runnable blsSyncRunnable = new Runnable() {
         @Override public void run() {
@@ -131,6 +133,12 @@ public class AndroidBridge {
 
     public void stopKeepalive() {
         mainHandler.removeCallbacks(blsSyncRunnable);
+    }
+
+    /** Called by MainActivity to isolate the UI during add-account flow. */
+    public void setAddAccountMode(boolean active) {
+        addAccountModeActive = active;
+        notifyUiStateChanged();
     }
 
     private void performBlsSync() {
@@ -301,6 +309,23 @@ public class AndroidBridge {
     public String getState() {
         try {
             JSONObject state = new JSONObject();
+
+            // While adding a new account, force disconnected so the UI shows the login state
+            if (addAccountModeActive) {
+                JSONObject state = new JSONObject();
+                state.put("connected", false);
+                state.put("running",   false);
+                state.put("accountCount", accountStore.getAccountCount());
+                state.put("config", new JSONObject("{"debugLogs":false,"pollIntervalMs":2500}"));
+                state.put("strategy", new JSONObject("{"enabled":false,"entries":[]}"));
+                state.put("logs", "");
+                state.put("match", new JSONObject("{"active":false}"));
+                state.put("stats", new JSONObject());
+                state.put("skillList", new JSONArray());
+                state.put("matchHistory", new JSONArray());
+                state.put("battleStats", new JSONObject());
+                return state.toString();
+            }
 
             boolean connected = isSessionVerified();
             if (connected) {
@@ -551,6 +576,17 @@ public class AndroidBridge {
         mainHandler.post(() -> {
             if (context instanceof MainActivity) {
                 ((MainActivity) context).removeAccountWithData(playerId);
+            }
+        });
+    }
+
+    /** Sends a surrender action for the current active match via the game WebView. */
+    @JavascriptInterface
+    public void surrenderMatch() {
+        mainHandler.post(() -> {
+            if (gameWebView != null) {
+                gameWebView.evaluateJavascript(
+                    "if(window.__pvpmSurrenderMatch) window.__pvpmSurrenderMatch();", null);
             }
         });
     }
