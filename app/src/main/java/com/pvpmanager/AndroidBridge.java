@@ -694,8 +694,69 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void clearLogs() {
+        // 1. Clear Android-side log buffer
         synchronized (logLines) { logLines.clear(); }
+
+        // 2. Inject into gameWebView so logHistory + gameLogs are wiped in the live runtime
+        mainHandler.post(() -> {
+            if (gameWebView != null) {
+                gameWebView.evaluateJavascript(
+                    "if(window.__pvpmClearLogs) window.__pvpmClearLogs();", null);
+            }
+        });
+
+        // 3. Strip gameLogs from the cached live-state snapshot so the next
+        //    getState() call does not re-inject stale logs into the UI.
+        String cached = getStringScoped(KEY_CACHED_LIVE, null);
+        if (cached != null) {
+            try {
+                JSONObject live = new JSONObject(cached);
+                live.put("gameLogs", "");
+                putStringScoped(KEY_CACHED_LIVE, live.toString());
+            } catch (JSONException ignored) {}
+        }
+
         appendLog("system", "Logs cleared");
+        notifyUiStateChanged();
+    }
+
+    // ── BUG 3 FIX: Full W/L reset — runtime + cached state ──────────────────
+    @JavascriptInterface
+    public void resetSession() {
+        // 1. Zero the live counters inside gameWebView (runtime + scoped localStorage)
+        mainHandler.post(() -> {
+            if (gameWebView != null) {
+                gameWebView.evaluateJavascript(
+                    "if(window.__pvpmResetSession) window.__pvpmResetSession();", null);
+            }
+        });
+
+        // 2. Clear the scoped SESSION_KEY in SharedPrefs so reset survives restart
+        String activeId = accountStore.getActiveAccountId();
+        if (activeId != null && !activeId.isEmpty()) {
+            prefs.edit().remove("et_pvp_session_" + activeId).apply();
+        }
+        prefs.edit().remove("et_pvp_session").apply();
+
+        // 3. Zero battleStats in the cached live-state snapshot so Android UI
+        //    reflects the reset on the very next getState() call without waiting
+        //    for a full gameWebView refresh cycle.
+        String cached = getStringScoped(KEY_CACHED_LIVE, null);
+        if (cached != null) {
+            try {
+                JSONObject live = new JSONObject(cached);
+                if (live.has("battleStats")) {
+                    JSONObject bs = live.getJSONObject("battleStats");
+                    bs.put("wins", 0);
+                    bs.put("losses", 0);
+                    bs.put("matches", 0);
+                    live.put("battleStats", bs);
+                }
+                putStringScoped(KEY_CACHED_LIVE, live.toString());
+            } catch (JSONException ignored) {}
+        }
+
+        appendLog("system", "W/L session reset for active account");
         notifyUiStateChanged();
     }
 
