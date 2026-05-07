@@ -56,6 +56,12 @@ public class MainActivity extends AppCompatActivity {
 
     // Whether we are in "add account" mode (vs. plain login)
     private boolean addingNewAccount = false;
+    // Cookies saved before clearing session for add-account mode; restored on cancel/success
+    private String savedCookiesForAddAccount = null;
+
+    // Avatar image views for the floating chip (BUG 5)
+    private ImageView chipAvatarImageView = null;
+    private TextView  chipAvatarFallback  = null;
 
     // ── Account chip & flyout (native overlay) ────────────────────────────────
     private FrameLayout accountChipContainer;
@@ -368,10 +374,23 @@ public class MainActivity extends AppCompatActivity {
         bridge.appendLog("system", "Account removed: " + playerId);
     }
 
-    /** Opens login overlay in "add new account" mode. */
+    /** Opens login overlay in "add new account" mode with full session isolation. */
     public void startAddAccountFlow() {
         addingNewAccount = true;
-        showLoginInternal("https://demonicscans.org");
+
+        // 1. Snapshot current account cookies so we can restore them later
+        CookieManager.getInstance().flush();
+        savedCookiesForAddAccount = CookieManager.getInstance().getCookie("https://demonicscans.org");
+
+        // 2. Clear all cookies so the loginWebView starts fresh (new account login)
+        CookieHelper.clearAll();
+
+        // 3. Tell bridge to report "disconnected" so the UI chip shows correctly
+        if (bridge != null) bridge.setAddAccountMode(true);
+
+        // 4. Open login overlay pointed at the sign-in page
+        showLoginInternal("https://demonicscans.org/sign.php");
+        if (bridge != null) bridge.appendLog("system", "Add account mode: cookies cleared, fresh login session");
     }
 
     // ── Account chip UI ───────────────────────────────────────────────────────
@@ -391,11 +410,38 @@ public class MainActivity extends AppCompatActivity {
         chipBg.setStroke(dp(1), Color.parseColor("#44ffffff"));
         row.setBackground(chipBg);
 
-        // Avatar circle
-        chipAvatarCircle = buildAvatarCircle("?", Color.parseColor("#6a3fb5"), dp(28));
-        LinearLayout.LayoutParams avP = new LinearLayout.LayoutParams(dp(28), dp(28));
+        // Avatar: FrameLayout stacking fallback letter + real image (BUG 5)
+        int avSizePx = dp(28);
+        FrameLayout avFrame = new FrameLayout(this);
+        avFrame.setClipToOutline(true);
+        GradientDrawable circleClip = new GradientDrawable();
+        circleClip.setShape(GradientDrawable.OVAL);
+        circleClip.setColor(Color.parseColor("#6a3fb5"));
+        avFrame.setBackground(circleClip);
+
+        chipAvatarFallback = new TextView(this);
+        chipAvatarFallback.setText("?");
+        chipAvatarFallback.setTextColor(Color.WHITE);
+        chipAvatarFallback.setTextSize(11f);
+        chipAvatarFallback.setTypeface(chipAvatarFallback.getTypeface(), android.graphics.Typeface.BOLD);
+        chipAvatarFallback.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams fbP = new FrameLayout.LayoutParams(avSizePx, avSizePx);
+        avFrame.addView(chipAvatarFallback, fbP);
+
+        chipAvatarImageView = new ImageView(this);
+        chipAvatarImageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        chipAvatarImageView.setVisibility(View.GONE);
+        GradientDrawable imgCircle = new GradientDrawable();
+        imgCircle.setShape(GradientDrawable.OVAL);
+        chipAvatarImageView.setBackground(imgCircle);
+        chipAvatarImageView.setClipToOutline(true);
+        android.graphics.drawable.ShapeDrawable imgShape = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.OvalShape());
+        avFrame.addView(chipAvatarImageView, new FrameLayout.LayoutParams(avSizePx, avSizePx));
+
+        chipAvatarCircle = avFrame; // keep reference for legacy compat
+        LinearLayout.LayoutParams avP = new LinearLayout.LayoutParams(avSizePx, avSizePx);
         avP.setMarginEnd(dp(6));
-        row.addView(chipAvatarCircle, avP);
+        row.addView(avFrame, avP);
 
         // Name
         chipNameText = new TextView(this);
@@ -425,24 +471,38 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             JSONObject account = accountStore.getActiveAccount();
             if (account != null) {
-                String name = account.optString("playerName", "Unknown");
+                String name    = account.optString("playerName", "Unknown");
+                String pid     = account.optString("playerId", name);
+                String avaUrl  = account.optString("avatarUrl", "");
                 chipNameText.setText(name);
                 chipNameText.setTextColor(Color.WHITE);
-                // Update avatar circle initial
-                if (chipAvatarCircle instanceof TextView) {
+                if (chipAvatarFallback != null) {
                     String initial = name.length() > 0 ? String.valueOf(name.charAt(0)).toUpperCase() : "?";
-                    ((TextView) chipAvatarCircle).setText(initial);
-                    ((TextView) chipAvatarCircle).setBackground(
-                        makeCircleDrawable(avatarColor(account.optString("playerId", name))));
+                    chipAvatarFallback.setText(initial);
+                    GradientDrawable fg = new GradientDrawable();
+                    fg.setShape(GradientDrawable.OVAL);
+                    fg.setColor(avatarColor(pid));
+                    chipAvatarFallback.setBackground(fg);
+                    chipAvatarFallback.setVisibility(View.VISIBLE);
+                }
+                if (chipAvatarImageView != null) {
+                    chipAvatarImageView.setVisibility(View.GONE);
+                    if (!avaUrl.isEmpty()) {
+                        loadAvatarAsync(chipAvatarImageView, avaUrl);
+                    }
                 }
             } else {
                 chipNameText.setText("Not Logged In");
                 chipNameText.setTextColor(Color.parseColor("#888888"));
-                if (chipAvatarCircle instanceof TextView) {
-                    ((TextView) chipAvatarCircle).setText("●");
-                    ((TextView) chipAvatarCircle).setBackground(
-                        makeCircleDrawable(Color.parseColor("#444444")));
+                if (chipAvatarFallback != null) {
+                    chipAvatarFallback.setText("●");
+                    GradientDrawable fg = new GradientDrawable();
+                    fg.setShape(GradientDrawable.OVAL);
+                    fg.setColor(Color.parseColor("#444444"));
+                    chipAvatarFallback.setBackground(fg);
+                    chipAvatarFallback.setVisibility(View.VISIBLE);
                 }
+                if (chipAvatarImageView != null) chipAvatarImageView.setVisibility(View.GONE);
             }
         });
     }
@@ -557,13 +617,38 @@ public class MainActivity extends AppCompatActivity {
         String name = account.optString("playerName", "Unknown");
         int    lvl  = account.optInt("level", 0);
 
-        // Avatar circle
-        View ava = buildAvatarCircle(
-            name.length() > 0 ? String.valueOf(name.charAt(0)).toUpperCase() : "?",
-            avatarColor(pid), dp(32));
-        LinearLayout.LayoutParams avaP = new LinearLayout.LayoutParams(dp(32), dp(32));
+        // Avatar: stacked fallback letter + real image (BUG 5)
+        int rowAvSz = dp(32);
+        FrameLayout rowAvFrame = new FrameLayout(this);
+        rowAvFrame.setClipToOutline(true);
+        GradientDrawable rowAvBg = new GradientDrawable();
+        rowAvBg.setShape(GradientDrawable.OVAL);
+        rowAvBg.setColor(avatarColor(pid));
+        rowAvFrame.setBackground(rowAvBg);
+
+        TextView rowAvFallback = new TextView(this);
+        rowAvFallback.setText(name.length() > 0 ? String.valueOf(name.charAt(0)).toUpperCase() : "?");
+        rowAvFallback.setTextColor(Color.WHITE);
+        rowAvFallback.setTextSize(12f);
+        rowAvFallback.setTypeface(rowAvFallback.getTypeface(), android.graphics.Typeface.BOLD);
+        rowAvFallback.setGravity(Gravity.CENTER);
+        rowAvFrame.addView(rowAvFallback, new FrameLayout.LayoutParams(rowAvSz, rowAvSz));
+
+        ImageView rowAvImage = new ImageView(this);
+        rowAvImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        rowAvImage.setVisibility(View.GONE);
+        rowAvImage.setClipToOutline(true);
+        GradientDrawable rowAvCircle = new GradientDrawable();
+        rowAvCircle.setShape(GradientDrawable.OVAL);
+        rowAvImage.setBackground(rowAvCircle);
+        rowAvFrame.addView(rowAvImage, new FrameLayout.LayoutParams(rowAvSz, rowAvSz));
+
+        String rowAvaUrl = account.optString("avatarUrl", "");
+        if (!rowAvaUrl.isEmpty()) loadAvatarAsync(rowAvImage, rowAvaUrl);
+
+        LinearLayout.LayoutParams avaP = new LinearLayout.LayoutParams(rowAvSz, rowAvSz);
         avaP.setMarginEnd(dp(10));
-        row.addView(ava, avaP);
+        row.addView(rowAvFrame, avaP);
 
         // Name + ID column
         LinearLayout info = new LinearLayout(this);
@@ -778,6 +863,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void showLoginInternal(String forceUrl) {
         if (loginWebView == null || loginContainer == null) return;
+        // BUG 3: hide the floating chip and flyout when overlay opens
+        if (accountChipContainer  != null) accountChipContainer.setVisibility(View.GONE);
+        closeAccountFlyout();
         if (!addingNewAccount && bridge != null && bridge.isSessionVerified()) {
             setConnectButtonState(ConnectState.SUCCESS);
         } else {
@@ -837,33 +925,120 @@ public class MainActivity extends AppCompatActivity {
         boolean wasAddingNew = addingNewAccount;
         addingNewAccount = false;
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            closeLoginOverlay();
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-            }
-        }, 600);
+        if (wasAddingNew) {
+            // ── ADD ACCOUNT MODE: extract new identity, save account, restore original session ──
+            final String newCookies = cookies; // captured above (local var)
+            bridge.appendLog("system", "Add account: extracting identity from loginWebView…");
 
-        // Load pvp.php in gameWebView — onPageFinished will extract account identity
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (gameWebView != null) {
-                CookieManager.getInstance().flush();
-                bridge.appendLog("debug", "Loading " + PVP_URL + " in gameWebView");
-                gameWebView.loadUrl(PVP_URL);
-            }
-        }, 800);
+            loginWebView.evaluateJavascript(
+                "(function(){" +
+                "  try{" +
+                "    var l=document.querySelector('a[href*="player.php?pid="]');" +
+                "    if(!l) return null;" +
+                "    var m=(l.getAttribute('href')||'').match(/pid=(\\d+)/);" +
+                "    if(!m) return null;" +
+                "    var pid=m[1];" +
+                "    var nameEl=document.querySelector('.small-name');" +
+                "    var avaEl=document.querySelector('.small-ava img');" +
+                "    var lvlEl=document.querySelector('.small-level');" +
+                "    var name=nameEl?nameEl.textContent.trim():'New Account';" +
+                "    var avaRaw=avaEl?(avaEl.getAttribute('src')||''):'';" +
+                "    var ava=avaRaw?(avaRaw.startsWith('http')?avaRaw:'https://demonicscans.org/'+avaRaw.replace(/^\\//, '')):'';" +
+                "    var lvl=0;if(lvlEl){var lm=lvlEl.textContent.match(/(\\d+)/);if(lm)lvl=parseInt(lm[1]);}" +
+                "    return JSON.stringify({pid:pid,name:name,ava:ava,lvl:lvl});" +
+                "  }catch(e){return null;}" +
+                "})()",
+                result -> {
+                    // Parse identity (may be null if page doesn't show player info yet)
+                    String pid   = "new_" + System.currentTimeMillis();
+                    String pname = "New Account";
+                    String pava  = "";
+                    int    plvl  = 0;
+                    if (result != null && !result.equals("null")) {
+                        try {
+                            String json = result;
+                            if (json.startsWith(""")) json = json.substring(1, json.length()-1)
+                                .replace("\"",""").replace("\\","\");
+                            org.json.JSONObject info = new org.json.JSONObject(json);
+                            pid   = info.optString("pid",  pid);
+                            pname = info.optString("name", pname);
+                            pava  = info.optString("ava",  pava);
+                            plvl  = info.optInt("lvl", 0);
+                        } catch (org.json.JSONException ignored) {}
+                    }
+                    final String finalPid = pid, finalName = pname, finalAva = pava;
+                    final int    finalLvl = plvl;
+                    // Save new account profile
+                    try {
+                        org.json.JSONObject newAcc = new org.json.JSONObject();
+                        newAcc.put("playerId",   finalPid);
+                        newAcc.put("playerName", finalName);
+                        newAcc.put("avatarUrl",  finalAva);
+                        newAcc.put("level",      finalLvl);
+                        newAcc.put("cookies",    newCookies);
+                        newAcc.put("lastLogin",  System.currentTimeMillis());
+                        accountStore.saveAccount(newAcc);
+                        bridge.appendLog("system", "New account saved: " + finalName + " (ID: " + finalPid + ")");
+                    } catch (org.json.JSONException e) {
+                        bridge.appendLog("error", "Add account: save failed — " + e.getMessage());
+                    }
+                    // Restore original account cookies
+                    CookieHelper.clearAll();
+                    if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
+                        injectCookiesForAccount(savedCookiesForAddAccount);
+                    }
+                    savedCookiesForAddAccount = null;
+                    // Restore bridge connected state for current account
+                    bridge.setAddAccountMode(false);
+                    updateAccountChip();
+                    closeLoginOverlay();
+                    if (uiWebView != null) {
+                        new Handler(Looper.getMainLooper()).postDelayed(() ->
+                            uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null), 300);
+                    }
+                }
+            );
+        } else {
+            // ── NORMAL LOGIN MODE ─────────────────────────────────────────────────────
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                closeLoginOverlay();
+                if (uiWebView != null) {
+                    uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                }
+            }, 600);
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
-            }
-        }, 1200);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (gameWebView != null) {
+                    CookieManager.getInstance().flush();
+                    bridge.appendLog("debug", "Loading " + PVP_URL + " in gameWebView");
+                    gameWebView.loadUrl(PVP_URL);
+                }
+            }, 800);
+
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (uiWebView != null) {
+                    uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
+                }
+            }, 1200);
+        }
     }
 
     // ── Overlay helpers ───────────────────────────────────────────────────────
     private void closeLoginOverlay() {
         if (loginContainer == null) return;
+        // If closing via BACK while in add-account mode, restore original cookies (BUG 2)
+        if (addingNewAccount) {
+            addingNewAccount = false;
+            CookieHelper.clearAll();
+            if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
+                injectCookiesForAccount(savedCookiesForAddAccount);
+            }
+            savedCookiesForAddAccount = null;
+            if (bridge != null) bridge.setAddAccountMode(false);
+        }
         loginContainer.setVisibility(View.INVISIBLE);
+        // BUG 3: always restore chip visibility when overlay closes
+        if (accountChipContainer != null) accountChipContainer.setVisibility(View.VISIBLE);
         if (bridge == null || !bridge.isSessionVerified()) setConnectButtonState(ConnectState.IDLE);
         if (uiWebView != null) {
             uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
@@ -916,6 +1091,53 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
+    /**
+     * Async avatar loader (BUG 5): fetches image on background thread, applies to ImageView on UI thread.
+     * Shows the ImageView and hides the fallback letter on success; silently falls back on error.
+     */
+    private void loadAvatarAsync(ImageView iv, String avatarUrl) {
+        if (iv == null || avatarUrl == null || avatarUrl.isEmpty()) return;
+        new Thread(() -> {
+            try {
+                java.net.URL url = new java.net.URL(avatarUrl);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(6000);
+                conn.setRequestProperty("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36");
+                conn.setRequestProperty("Referer", "https://demonicscans.org/");
+                conn.connect();
+                if (conn.getResponseCode() == 200) {
+                    android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeStream(conn.getInputStream());
+                    if (bm != null) {
+                        // Crop to circle using a square centre crop
+                        int min = Math.min(bm.getWidth(), bm.getHeight());
+                        android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
+                            bm, (bm.getWidth()-min)/2, (bm.getHeight()-min)/2, min, min);
+                        final android.graphics.Bitmap finalBm = cropped;
+                        runOnUiThread(() -> {
+                            iv.setImageBitmap(finalBm);
+                            iv.setVisibility(View.VISIBLE);
+                            // Hide sibling fallback TextView if present
+                            android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
+                            if (parent != null) {
+                                for (int i = 0; i < parent.getChildCount(); i++) {
+                                    android.view.View child = parent.getChildAt(i);
+                                    if (child instanceof TextView && child != iv) {
+                                        child.setVisibility(View.GONE);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+                conn.disconnect();
+            } catch (Exception ignored) {
+                // Silently fall back to letter placeholder — no crash
+            }
+        }).start();
+    }
+
     private TextView pillButton(String text, int bgColor) {
         TextView tv = new TextView(this);
         tv.setText(text);
