@@ -209,12 +209,25 @@ public class AndroidBridge {
                 "    var m=(link.getAttribute('href')||'').match(/pid=(\\d+)/);" +
                 "    if(!m) return null;" +
                 "    var pid=m[1];" +
-                "    var nameEl=document.querySelector('.small-name');" +
-                "    var avaEl=document.querySelector('.small-ava img');" +
-                "    var lvlEl=document.querySelector('.small-level');" +
-                "    var name=nameEl?nameEl.textContent.trim():'Unknown';" +
+                "    var nameEl=document.querySelector('.small-name')" +
+                "      ||document.querySelector('.user-name')" +
+                "      ||document.querySelector('.profile-name')" +
+                "      ||document.querySelector('.player-name')" +
+                "      ||document.querySelector('h1.name')" +
+                "      ||document.querySelector('h2.name');" +
+                "    var name=nameEl?nameEl.textContent.trim():'';" +
+                "    if(!name||name.length<1){var lt=(link.textContent||'').trim();if(lt&&lt.length>1&&!lt.startsWith('http'))name=lt;}" +
+                "    if(!name||name.length<1)name='Unknown';" +
+                "    var avaEl=document.querySelector('.small-ava img')" +
+                "      ||document.querySelector('.user-avatar img')" +
+                "      ||document.querySelector('.profile-avatar img')" +
+                "      ||document.querySelector('.avatar img')" +
+                "      ||document.querySelector('img[src*=\"avatars/user_\"]');" +
                 "    var avaRaw=avaEl?(avaEl.getAttribute('src')||''):'';" +
                 "    var ava=avaRaw?(avaRaw.startsWith('http')?avaRaw:'https://demonicscans.org/'+avaRaw.replace(/^\\//,''))  :'';" +
+                "    var lvlEl=document.querySelector('.small-level')" +
+                "      ||document.querySelector('.user-level')" +
+                "      ||document.querySelector('.player-level');" +
                 "    var lvlNum=0;" +
                 "    if(lvlEl){var lm=lvlEl.textContent.match(/(\\d+)/);if(lm)lvlNum=parseInt(lm[1]);}" +
                 "    return JSON.stringify({playerId:pid,playerName:name,avatarUrl:ava,level:lvlNum});" +
@@ -720,7 +733,6 @@ public class AndroidBridge {
         notifyUiStateChanged();
     }
 
-    // ── BUG 3 FIX: Full W/L reset — runtime + cached state ──────────────────
     @JavascriptInterface
     public void resetSession() {
         // 1. Zero the live counters inside gameWebView (runtime + scoped localStorage)
@@ -738,17 +750,18 @@ public class AndroidBridge {
         }
         prefs.edit().remove("et_pvp_session").apply();
 
-        // 3. Zero battleStats in the cached live-state snapshot so Android UI
-        //    reflects the reset on the very next getState() call without waiting
-        //    for a full gameWebView refresh cycle.
+        // 3. Clear matchHistory and battleStats in the cached live-state snapshot so the
+        //    Android UI reflects the reset on the very next getState() call.
         String cached = getStringScoped(KEY_CACHED_LIVE, null);
         if (cached != null) {
             try {
                 JSONObject live = new JSONObject(cached);
+                // Clear match history so W/L pill counts drop to zero immediately
+                live.put("matchHistory", new JSONArray());
                 if (live.has("battleStats")) {
                     JSONObject bs = live.getJSONObject("battleStats");
-                    bs.put("wins", 0);
-                    bs.put("losses", 0);
+                    bs.put("wins",    0);
+                    bs.put("losses",  0);
                     bs.put("matches", 0);
                     live.put("battleStats", bs);
                 }
