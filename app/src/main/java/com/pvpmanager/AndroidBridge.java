@@ -314,7 +314,7 @@ public class AndroidBridge {
             if (addAccountModeActive) {
                 JSONObject cfg = new JSONObject();
                 cfg.put("debugLogs", false);
-                cfg.put("pollIntervalMs", 5000);
+                cfg.put("pollIntervalMs", 2500);
                 JSONObject strat = new JSONObject();
                 strat.put("enabled", false);
                 strat.put("entries", new JSONArray());
@@ -368,8 +368,8 @@ public class AndroidBridge {
 
             JSONObject config = new JSONObject();
             config.put("debugLogs", prefs.getBoolean(KEY_DEBUG_LOGS, false));
-            int pollMs = 5000;
-            try { pollMs = Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "5000")); }
+            int pollMs = 1500;
+            try { pollMs = Integer.parseInt(prefs.getString(KEY_POLL_INTERVAL, "1500")); }
             catch (NumberFormatException ignored) {}
             config.put("pollIntervalMs", pollMs);
             state.put("config", config);
@@ -686,6 +686,11 @@ public class AndroidBridge {
     }
 
     // ── Misc JS Interface ────────────────────────────────────────────────────
+
+    /** Silently clears the in-memory log buffer — called on account switch so logs don't mix. */
+    public void clearLogBuffer() {
+        synchronized (logLines) { logLines.clear(); }
+    }
 
     @JavascriptInterface
     public void clearLogs() {
