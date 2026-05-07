@@ -80,6 +80,17 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
 
         accountStore = new AccountStore(this);
+        // FIX 3: Remove any stub accounts left from failed identity extractions
+        {
+            org.json.JSONArray existingAccts = accountStore.getAccounts();
+            for (int _si = 0; _si < existingAccts.length(); _si++) {
+                org.json.JSONObject _sa = existingAccts.optJSONObject(_si);
+                if (_sa != null) {
+                    String _spid = _sa.optString("playerId", "");
+                    if (_spid.startsWith("new_")) accountStore.removeAccount(_spid);
+                }
+            }
+        }
 
         notificationPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),
@@ -183,9 +194,8 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 if (bridge != null) {
-                    // When adding a new account, always stay IDLE so Save & Connect stays visible
-                    if (!addingNewAccount && bridge.isSessionVerified()) setConnectButtonState(ConnectState.SUCCESS);
-                    else                                                  setConnectButtonState(ConnectState.IDLE);
+                    if (bridge.isSessionVerified()) setConnectButtonState(ConnectState.SUCCESS);
+                    else                            setConnectButtonState(ConnectState.IDLE);
                 }
             }
         });
@@ -306,29 +316,35 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // 3. Clear cookies
+        // 3. Clear cookies AND WebStorage so old account's localStorage session can't persist (FIX4)
         CookieHelper.clearAll();
+        new Handler(Looper.getMainLooper()).post(() -> {
+            android.webkit.WebStorage.getInstance().deleteAllData();
+            if (gameWebView != null) gameWebView.clearCache(false);
+        });
 
         // 4. Inject target account cookies
         String targetCookies = targetAccount.optString("cookies", "");
         if (!targetCookies.isEmpty()) {
             injectCookiesForAccount(targetCookies);
         }
+        CookieManager.getInstance().flush(); // ensure cookies written before WebView loads
 
         // 5. Set active account
         accountStore.setActiveAccountId(playerId);
         bridge.setConnected(!targetCookies.isEmpty());
 
-        // 6. Update chip immediately
+        // 6. Update chip and clear log buffer so new account starts with clean logs (FIX1)
         updateAccountChip();
-        bridge.appendLog("system", "Switching to account: " + targetAccount.optString("playerName") + " (" + playerId + ")");
+        bridge.clearLogBuffer();
+        bridge.appendLog("system", "Switched to account: " + targetAccount.optString("playerName") + " (" + playerId + ")");
 
-        // 7. Reload gameWebView — onPageFinished will inject pvp_manager.js and extract identity
+        // 7. Reload gameWebView — longer delay so WebStorage + cookies are ready (FIX4)
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (gameWebView != null) {
                 gameWebView.loadUrl(PVP_URL);
             }
-        }, 300);
+        }, 800);
 
         // 8. Notify UI to reflect new account state
         new Handler(Looper.getMainLooper()).postDelayed(() -> bridge.notifyUiStateChanged(), 400);
@@ -918,17 +934,13 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        // Mark connected (single session)
+        bridge.setConnected(true);
+        bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
+        setConnectButtonState(ConnectState.SUCCESS);
+
         boolean wasAddingNew = addingNewAccount;
         addingNewAccount = false;
-
-        if (!wasAddingNew) {
-            // Normal login: mark the session as connected
-            bridge.setConnected(true);
-            bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
-            setConnectButtonState(ConnectState.SUCCESS);
-        } else {
-            bridge.appendLog("system", "Add account: new cookies captured, extracting identity…");
-        }
 
         if (wasAddingNew) {
             // ── ADD ACCOUNT MODE: extract new identity, save account, restore original session ──
@@ -973,21 +985,31 @@ public class MainActivity extends AppCompatActivity {
                     }
                     final String finalPid = pid, finalName = pname, finalAva = pava;
                     final int    finalLvl = plvl;
-                    // Save new account profile
-                    try {
-                        org.json.JSONObject newAcc = new org.json.JSONObject();
-                        newAcc.put("playerId",   finalPid);
-                        newAcc.put("playerName", finalName);
-                        newAcc.put("avatarUrl",  finalAva);
-                        newAcc.put("level",      finalLvl);
-                        newAcc.put("cookies",    newCookies);
-                        newAcc.put("lastLogin",  System.currentTimeMillis());
-                        accountStore.saveAccount(newAcc);
-                        bridge.appendLog("system", "New account saved: " + finalName + " (ID: " + finalPid + ")");
-                    } catch (org.json.JSONException e) {
-                        bridge.appendLog("error", "Add account: save failed — " + e.getMessage());
+
+                    // FIX 3: Only save if we extracted a real player ID (not a stub/fallback)
+                    boolean identityKnown = !finalPid.startsWith("new_") && !finalPid.isEmpty();
+                    if (identityKnown) {
+                        try {
+                            org.json.JSONObject newAcc = new org.json.JSONObject();
+                            newAcc.put("playerId",   finalPid);
+                            newAcc.put("playerName", finalName);
+                            newAcc.put("avatarUrl",  finalAva);
+                            newAcc.put("level",      finalLvl);
+                            newAcc.put("cookies",    newCookies);
+                            newAcc.put("lastLogin",  System.currentTimeMillis());
+                            accountStore.saveAccount(newAcc);
+                            bridge.appendLog("system", "New account saved: " + finalName + " (ID: " + finalPid + ")");
+                        } catch (org.json.JSONException e) {
+                            bridge.appendLog("error", "Add account: save failed — " + e.getMessage());
+                        }
+                    } else {
+                        // Identity extraction failed — don't create a stub, just warn the user
+                        bridge.appendLog("warning", "Add account: couldn't identify player — make sure you are fully logged in on the site");
+                        runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
+                            "Could not identify account. Please sign in completely and try again.",
+                            android.widget.Toast.LENGTH_LONG).show());
                     }
-                    // Restore original account cookies
+                    // Restore original account cookies regardless of success/failure
                     CookieHelper.clearAll();
                     if (savedCookiesForAddAccount != null && !savedCookiesForAddAccount.isEmpty()) {
                         injectCookiesForAccount(savedCookiesForAddAccount);
