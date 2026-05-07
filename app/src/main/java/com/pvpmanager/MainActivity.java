@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.OvalShape;
@@ -1156,9 +1157,13 @@ public class MainActivity extends AppCompatActivity {
                                         bridge.appendLog("warning", "Add account: all layers failed");
                                         runOnUiThread(() -> {
                                             Toast.makeText(MainActivity.this,
-                                                "Could not identify account. Please sign in completely and try again.",
-                                                Toast.LENGTH_LONG).show();
+                                                "Could not identify account.",
+                                                Toast.LENGTH_SHORT).show();
                                             setConnectButtonState(ConnectState.FAILURE);
+                                            // Delay the guidance dialog slightly so the toast
+                                            // appears first and the user sees both messages.
+                                            new Handler(Looper.getMainLooper()).postDelayed(
+                                                () -> showAccountIdentityHelpDialog(), 600);
                                         });
                                     }
                                     _restoreAddAccountSession();
@@ -1191,6 +1196,166 @@ public class MainActivity extends AppCompatActivity {
                 }
             }, 1200);
         }
+    }
+
+    // ── Account identity guidance dialog ──────────────────────────────────────
+    /**
+     * Shown when all identity-extraction layers fail so the user knows exactly
+     * which page to navigate to before tapping Save & Connect again.
+     */
+    private void showAccountIdentityHelpDialog() {
+        android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_NoTitleBar);
+        dialog.setCancelable(true);
+
+        // ── Root card ────────────────────────────────────────────────────────
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(24), dp(26), dp(24), dp(22));
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(Color.parseColor("#1C1C2E"));
+        cardBg.setCornerRadius(dp(20));
+        cardBg.setStroke(dp(1), Color.parseColor("#3A3A5C"));
+        root.setBackground(cardBg);
+
+        // ── Warning icon ─────────────────────────────────────────────────────
+        TextView icon = new TextView(this);
+        icon.setText("⚠️");
+        icon.setTextSize(34f);
+        icon.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        iconLp.bottomMargin = dp(10);
+        root.addView(icon, iconLp);
+
+        // ── Title ────────────────────────────────────────────────────────────
+        TextView title = new TextView(this);
+        title.setText("Account Not Identified");
+        title.setTextColor(Color.parseColor("#FFB74D"));
+        title.setTextSize(16f);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        titleLp.bottomMargin = dp(12);
+        root.addView(title, titleLp);
+
+        // ── Body ─────────────────────────────────────────────────────────────
+        TextView body = new TextView(this);
+        body.setText("Login was detected, but your player profile could not be confirmed on this page.\n\nNavigate to a game page, then tap Save & Connect again:");
+        body.setTextColor(Color.parseColor("#C8C8D8"));
+        body.setTextSize(13.5f);
+        body.setLineSpacing(dp(2), 1f);
+        body.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        bodyLp.bottomMargin = dp(16);
+        root.addView(body, bodyLp);
+
+        // ── Suggestion pills ─────────────────────────────────────────────────
+        LinearLayout pillCol = new LinearLayout(this);
+        pillCol.setOrientation(LinearLayout.VERTICAL);
+        pillCol.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        String[][] suggestions = {
+            { "🎮  Game Dashboard", "https://demonicscans.org/game_dash.php" },
+            { "⚔️  PvP Page",        PVP_URL }
+        };
+
+        for (String[] s : suggestions) {
+            TextView pill = new TextView(this);
+            pill.setText(s[0]);
+            pill.setTextColor(Color.parseColor("#81C784"));
+            pill.setTextSize(13f);
+            pill.setTypeface(pill.getTypeface(), android.graphics.Typeface.BOLD);
+            pill.setGravity(Gravity.CENTER);
+            pill.setPadding(dp(20), dp(8), dp(20), dp(8));
+            GradientDrawable pillBg = new GradientDrawable();
+            pillBg.setColor(Color.parseColor("#192919"));
+            pillBg.setCornerRadius(dp(8));
+            pillBg.setStroke(dp(1), Color.parseColor("#2E4A2E"));
+            pill.setBackground(pillBg);
+            final String url = s[1];
+            pill.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (loginWebView != null) loginWebView.loadUrl(url);
+            });
+            LinearLayout.LayoutParams pillLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            pillLp.bottomMargin = dp(7);
+            pillCol.addView(pill, pillLp);
+        }
+        LinearLayout.LayoutParams pillColLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        pillColLp.bottomMargin = dp(20);
+        root.addView(pillCol, pillColLp);
+
+        // ── Divider ──────────────────────────────────────────────────────────
+        View divider = new View(this);
+        divider.setBackgroundColor(Color.parseColor("#2A2A4A"));
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        divLp.bottomMargin = dp(16);
+        root.addView(divider, divLp);
+
+        // ── Button row ───────────────────────────────────────────────────────
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setGravity(Gravity.CENTER);
+
+        // OK (dismiss)
+        TextView btnOk = new TextView(this);
+        btnOk.setText("OK");
+        btnOk.setTextColor(Color.parseColor("#AAAAAA"));
+        btnOk.setTextSize(13.5f);
+        btnOk.setGravity(Gravity.CENTER);
+        btnOk.setPadding(dp(20), dp(10), dp(20), dp(10));
+        GradientDrawable okBg = new GradientDrawable();
+        okBg.setColor(Color.parseColor("#252535"));
+        okBg.setCornerRadius(dp(8));
+        okBg.setStroke(dp(1), Color.parseColor("#3A3A5A"));
+        btnOk.setBackground(okBg);
+        btnOk.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        okLp.rightMargin = dp(8);
+        btnRow.addView(btnOk, okLp);
+
+        // Open Dashboard (primary action)
+        TextView btnDash = new TextView(this);
+        btnDash.setText("Open Dashboard");
+        btnDash.setTextColor(Color.WHITE);
+        btnDash.setTextSize(13.5f);
+        btnDash.setTypeface(btnDash.getTypeface(), android.graphics.Typeface.BOLD);
+        btnDash.setGravity(Gravity.CENTER);
+        btnDash.setPadding(dp(16), dp(10), dp(16), dp(10));
+        GradientDrawable dashBg = new GradientDrawable();
+        dashBg.setColor(Color.parseColor("#1565C0"));
+        dashBg.setCornerRadius(dp(8));
+        btnDash.setBackground(dashBg);
+        btnDash.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (loginWebView != null)
+                loginWebView.loadUrl("https://demonicscans.org/game_dash.php");
+        });
+        LinearLayout.LayoutParams dashLp = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.6f);
+        btnRow.addView(btnDash, dashLp);
+
+        root.addView(btnRow);
+
+        // ── Window config ────────────────────────────────────────────────────
+        dialog.setContentView(root);
+        android.view.Window win = dialog.getWindow();
+        if (win != null) {
+            win.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            android.view.WindowManager.LayoutParams wlp = win.getAttributes();
+            wlp.width  = (int)(getResources().getDisplayMetrics().widthPixels * 0.88f);
+            wlp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+            wlp.gravity = Gravity.CENTER;
+            win.setAttributes(wlp);
+        }
+        dialog.show();
     }
 
     // ── Add-account session restore ───────────────────────────────────────────
