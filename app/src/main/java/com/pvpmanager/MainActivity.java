@@ -193,7 +193,13 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
-                if (bridge != null) {
+                if (bridge == null) return;
+                // BUG 1 FIX: in add-account mode the old session is still verified
+                // (we only cleared cookies, not the session flag).  Never auto-flip
+                // to CONNECTED here — the user must tap "Save & Connect" explicitly.
+                if (addingNewAccount) {
+                    setConnectButtonState(ConnectState.IDLE);
+                } else {
                     if (bridge.isSessionVerified()) setConnectButtonState(ConnectState.SUCCESS);
                     else                            setConnectButtonState(ConnectState.IDLE);
                 }
@@ -467,8 +473,14 @@ public class MainActivity extends AppCompatActivity {
         chipNameText.setTextSize(12f);
         chipNameText.setMaxLines(1);
         chipNameText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        // BUG 4 FIX: cap the name column to 120dp so long names cannot overflow
+        // into the dropdown arrow or push the chip past its container.
+        LinearLayout.LayoutParams nameP = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        nameP.width = LinearLayout.LayoutParams.WRAP_CONTENT;
+        chipNameText.setMaxWidth(dp(120));
         row.addView(chipNameText, new LinearLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         // Arrow
         TextView arrow = new TextView(this);
@@ -849,6 +861,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void setConnectButtonState(ConnectState state) {
         if (btnSaveConnect == null) return;
+        // BUG 1 FIX: in add-account mode NEVER show CONNECTED — the whole point
+        // is that the user must explicitly tap "Save & Connect" to register the
+        // new account.  Coerce SUCCESS → IDLE in this mode.
+        if (addingNewAccount && state == ConnectState.SUCCESS) {
+            state = ConnectState.IDLE;
+        }
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(24));
         switch (state) {
@@ -989,18 +1007,27 @@ public class MainActivity extends AppCompatActivity {
                     // FIX 3: Only save if we extracted a real player ID (not a stub/fallback)
                     boolean identityKnown = !finalPid.startsWith("new_") && !finalPid.isEmpty();
                     if (identityKnown) {
-                        try {
-                            org.json.JSONObject newAcc = new org.json.JSONObject();
-                            newAcc.put("playerId",   finalPid);
-                            newAcc.put("playerName", finalName);
-                            newAcc.put("avatarUrl",  finalAva);
-                            newAcc.put("level",      finalLvl);
-                            newAcc.put("cookies",    newCookies);
-                            newAcc.put("lastLogin",  System.currentTimeMillis());
-                            accountStore.saveAccount(newAcc);
-                            bridge.appendLog("system", "New account saved: " + finalName + " (ID: " + finalPid + ")");
-                        } catch (org.json.JSONException e) {
-                            bridge.appendLog("error", "Add account: save failed — " + e.getMessage());
+                        // BUG 1 FIX: check for duplicate before saving
+                        JSONObject existingAcc = accountStore.getAccount(finalPid);
+                        if (existingAcc != null) {
+                            bridge.appendLog("system", "Account already added: " + finalName + " (ID: " + finalPid + ")");
+                            runOnUiThread(() -> android.widget.Toast.makeText(MainActivity.this,
+                                "Account already added: " + finalName,
+                                android.widget.Toast.LENGTH_LONG).show());
+                        } else {
+                            try {
+                                org.json.JSONObject newAcc = new org.json.JSONObject();
+                                newAcc.put("playerId",   finalPid);
+                                newAcc.put("playerName", finalName);
+                                newAcc.put("avatarUrl",  finalAva);
+                                newAcc.put("level",      finalLvl);
+                                newAcc.put("cookies",    newCookies);
+                                newAcc.put("lastLogin",  System.currentTimeMillis());
+                                accountStore.saveAccount(newAcc);
+                                bridge.appendLog("system", "New account saved: " + finalName + " (ID: " + finalPid + ")");
+                            } catch (org.json.JSONException e) {
+                                bridge.appendLog("error", "Add account: save failed — " + e.getMessage());
+                            }
                         }
                     } else {
                         // Identity extraction failed — don't create a stub, just warn the user
