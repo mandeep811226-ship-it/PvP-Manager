@@ -2811,11 +2811,21 @@
             localStorage.setItem(UI_MIN_KEY, 'true');
             renderGUI();
         };
-        document.getElementById('pvpm-clearlog').onclick = clearLogs;
+        document.getElementById('pvpm-clearlog').onclick = () => {
+            clearLogs();  // wipes runtime logHistory + DOM
+            // BUG 2 FIX: also clear Android-side buffer + cached live-state gameLogs
+            try { if (window.Android && window.Android.clearLogs) window.Android.clearLogs(); } catch (_) {}
+        };
         document.getElementById('pvpm-history').onclick = openHistoryModal;
         document.getElementById('pvpm-resetsession').onclick = () => {
-            resetSession();
+            // BUG 3 FIX: reset runtime counters locally (immediate UI update)
+            matchCount = 0; winCount = 0; lossCount = 0;
+            scopedRemove(SESSION_KEY);
+            renderGUI();
             addLog('Session W/L reset.', { color: '#aaa' });
+            window.__pvpmState = buildAndroidState();
+            // Also drive the Android-side SharedPrefs reset so it survives restart
+            try { if (window.Android && window.Android.resetSession) window.Android.resetSession(); } catch (_) {}
         };
 
         /* -- Battle tab: Start / Stop -- */
@@ -4012,6 +4022,37 @@
     setInterval(function() {
         try { window.__pvpmState = buildAndroidState(); } catch (e) {}
     }, 800);
+
+    // ── Android-callable: clear ALL logs (runtime + persisted) ──────────────
+    // Called by AndroidBridge.clearLogs() after it clears the Java log buffer.
+    // This ensures the gameWebView runtime state is also wiped so polling
+    // cannot restore stale logs into the UI.
+    window.__pvpmClearLogs = function() {
+        try {
+            logHistory = [];
+            _programmaticScroll = true;
+            logBox.innerHTML = '';
+            _programmaticScroll = false;
+            _logPinned = true;
+            persistLogs();          // writes empty array to scoped storage
+            window.__pvpmState = buildAndroidState();
+        } catch (e) {}
+    };
+
+    // ── Android-callable: full W/L reset (runtime + persisted) ─────────────
+    // Called by AndroidBridge.resetSession().  Resets the ACTIVE account's
+    // counters in-closure and in scoped storage so the reset survives polling.
+    window.__pvpmResetSession = function() {
+        try {
+            matchCount = 0;
+            winCount   = 0;
+            lossCount  = 0;
+            scopedRemove(SESSION_KEY);
+            renderGUI();
+            addLog('Session W/L reset.', { color: '#aaa' });
+            window.__pvpmState = buildAndroidState();
+        } catch (e) {}
+    };
 
     } // end runFeature
 
