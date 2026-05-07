@@ -371,7 +371,7 @@
         <div class="settings-section-label">Bot</div>
         <div class="setting-row">
           <div><div class="setting-title">Poll Interval (ms)</div><div class="setting-sub">How often to check battle state</div></div>
-          <input type="number" id="poll-interval-input" value="1500" min="500" max="10000"
+          <input type="number" id="poll-interval-input" value="5000" min="500" max="10000"
             style="width:80px" onchange="onPollIntervalChange(this.value)"/>
         </div>
         <div class="setting-row">
@@ -447,7 +447,7 @@ var _strategyEntries = [];
 var _strategyDirty   = false;
 var _skillList       = [];
 var _pollTimer       = null;
-var _pollIntervalMs  = 2500;
+var _pollIntervalMs  = 5000;
 var _isRunning       = false;
 var _toastTimer      = null;
 var _stopStage       = 0;
@@ -495,7 +495,21 @@ function loadBlsFromBridge() {
     }
     _blsLoaded = true;
     refreshBlsNotice();
+    // Instantly update any already-open expand panels with the new BLS data
+    refreshOpenBlsPanels();
   } catch(e) { _blsMemory = {}; _blsLoaded = true; }
+}
+
+/** Refresh the HTML of every currently-open history expand panel. */
+function refreshOpenBlsPanels() {
+  var keys = Object.keys(_openCollapseIds);
+  for (var k = 0; k < keys.length; k++) {
+    var idx = parseInt(keys[k]);
+    if (!_openCollapseIds[idx]) continue;
+    var panel = document.getElementById('bls-expand-' + idx);
+    var m     = _lastFilteredHistory[idx];
+    if (panel && m) panel.innerHTML = buildBlsExpandHtml(m, idx);
+  }
 }
 
 /** Save BLS to Android bridge */
@@ -749,7 +763,7 @@ function onDebugToggleChange(checked) {
 
 function onPollIntervalChange(val) {
   _pollIntervalTouched = true;
-  var ms = Math.max(500, Math.min(10000, parseInt(val, 10) || 1500));
+  var ms = Math.max(500, Math.min(10000, parseInt(val, 10) || 5000));
   _pollIntervalMs = ms;
   if (window.Android) {
     try { Android.setConfigValue('poll_interval_ms', String(ms)); } catch(e) {}
@@ -897,15 +911,15 @@ function applyState(s) {
     if (!_pollIntervalTouched) {
       var pi = document.getElementById('poll-interval-input');
       if (document.activeElement !== pi) {
-        var rms = cfg.pollIntervalMs || 1500;
+        var rms = cfg.pollIntervalMs || 5000;
         if (pi.value != rms) pi.value = rms;
         if (rms !== _pollIntervalMs) restartPoll(rms);
       }
     }
   }
 
-  // Load BLS on first applyState
-  if (!_blsLoaded) loadBlsFromBridge();
+  // Reload BLS on every applyState tick so data appears as soon as gameWebView syncs it
+  loadBlsFromBridge();
 }
 
 // ============================================================
