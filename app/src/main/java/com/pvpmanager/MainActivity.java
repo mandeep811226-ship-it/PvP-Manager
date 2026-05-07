@@ -183,8 +183,9 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 if (bridge != null) {
-                    if (bridge.isSessionVerified()) setConnectButtonState(ConnectState.SUCCESS);
-                    else                            setConnectButtonState(ConnectState.IDLE);
+                    // When adding a new account, always stay IDLE so Save & Connect stays visible
+                    if (!addingNewAccount && bridge.isSessionVerified()) setConnectButtonState(ConnectState.SUCCESS);
+                    else                                                  setConnectButtonState(ConnectState.IDLE);
                 }
             }
         });
@@ -917,13 +918,17 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // Mark connected (single session)
-        bridge.setConnected(true);
-        bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
-        setConnectButtonState(ConnectState.SUCCESS);
-
         boolean wasAddingNew = addingNewAccount;
         addingNewAccount = false;
+
+        if (!wasAddingNew) {
+            // Normal login: mark the session as connected
+            bridge.setConnected(true);
+            bridge.appendLog("system", "Session saved ✓ cookies=" + cookies.length() + " chars");
+            setConnectButtonState(ConnectState.SUCCESS);
+        } else {
+            bridge.appendLog("system", "Add account: new cookies captured, extracting identity…");
+        }
 
         if (wasAddingNew) {
             // ── ADD ACCOUNT MODE: extract new identity, save account, restore original session ──
