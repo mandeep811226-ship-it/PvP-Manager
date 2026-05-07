@@ -165,6 +165,15 @@
     font-size:13px;font-family:var(--font);outline:none;flex:1;
   }
   #history-search::placeholder{color:var(--muted)}
+  /* History status row */
+  #history-status-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:3px 2px 5px 2px;flex-shrink:0;
+  }
+  #history-status-row .hsr-total{font-size:11px;color:#666}
+  #history-status-row .hsr-total strong{color:#aaa;font-weight:700}
+  #history-status-row .hsr-max{font-size:11px;color:#444}
+  #history-status-row .hsr-max strong{color:#555;font-weight:700}
 
   .match-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
   .match-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg3)}
@@ -362,7 +371,15 @@
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="history-search" type="text" placeholder="Search player name…" oninput="onHistorySearch(this.value)" autocomplete="off"/>
       </div>
-      <div id="history-list"></div>
+      <!-- Status row: Total / Max -->
+      <div id="history-status-row">
+        <span class="hsr-total">Total: <strong id="hist-count-num">0</strong> Battles</span>
+        <span class="hsr-max">Max: <strong id="hist-max-num">5,000</strong></span>
+      </div>
+      <div id="history-list" style="flex:1;overflow-y:auto;min-height:0"></div>
+      <button id="hist-load-more" class="btn btn-ghost btn-sm"
+              style="display:none;align-self:center;margin-top:6px;flex-shrink:0"
+              onclick="historyLoadMore()">Load more…</button>
     </div>
 
     <!-- SETTINGS TAB -->
@@ -456,6 +473,7 @@ var _lastLogHash  = '';
 var _lastHistLen  = -1;
 var _historyData  = [];   // full unfiltered history for search
 var _histSearch   = '';   // current search string
+var _histRenderedCount = 0; // chunked rendering: rows flushed so far
 
 var _debugToggleReady = false;
 var _debugToggleValue = false;
@@ -890,7 +908,14 @@ function applyState(s) {
 
   if (_activeTab === 'battle')   renderLogs(s.logs || '');
   if (_activeTab === 'history') {
-    _historyData = s.matchHistory || [];
+    var newHist = s.matchHistory || [];
+    // Only force a full re-render if history array changed size
+    if (newHist.length !== _historyData.length) {
+      _historyData = newHist;
+      _histRenderedCount = 0;
+    } else {
+      _historyData = newHist;
+    }
     renderHistory(_historyData);
   }
   if (_activeTab === 'strategy' && !_strategyDirty) {
@@ -1036,10 +1061,15 @@ function renderStrategyEntries(){
 }
 
 // ============================================================
-// HISTORY  (with search + collapsible BLS panels)
+// HISTORY  (with search + collapsible BLS panels + chunked rendering)
 // ============================================================
 var _openCollapseIds     = {}; // track which rows are expanded
 var _lastFilteredHistory = []; // parallel to current rendered list (for expand refresh)
+
+// Chunked rendering state
+var MAX_HISTORY_CAP  = 5000;   // mirrors pvp_manager.js MAX_HISTORY
+var HIST_PAGE_SIZE   = 50;     // rows per page
+var _histRenderedCount = 0;    // how many rows have been flushed to DOM
 
 function onHistorySearch(val) {
   _histSearch = (val || '').toLowerCase().trim();
@@ -1095,6 +1125,74 @@ function buildBlsExpandHtml(m, idx) {
     (bls ? '' : '<div style="color:var(--muted);font-size:10px;margin-top:2px">No BLS data yet for this player — fight them to learn their stats.</div>');
 }
 
+/** Build one match row's HTML string. idx = stable index in _lastFilteredHistory. */
+function buildMatchRowHtml(m, idx) {
+  var en  = m.enemy || {};
+  var d   = (m.pointsDelta != null) ? m.pointsDelta
+          : ((m.pointsAfter != null && m.pointsBefore != null) ? (m.pointsAfter - m.pointsBefore) : 0);
+  var dc  = d >= 0 ? 'pos' : 'neg';
+  var ds  = (d >= 0 ? '+' : '') + d;
+  var rc  = m.result === 'win' ? 'win' : m.result === 'loss' ? 'loss' : 'tie';
+  var rl  = m.result === 'win' ? 'W'  : m.result === 'loss' ? 'L'   : 'T';
+
+  var ts  = m.ts ? new Date(m.ts) : null;
+  var tsS = ts ? (pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())) : '';
+
+  var avatarUrl = en.avatarUrl || '';
+  if (avatarUrl && avatarUrl.indexOf('http') !== 0)
+    avatarUrl = 'https://demonicscans.org' + (avatarUrl.indexOf('/') === 0 ? '' : '/') + avatarUrl;
+
+  var isOpen = !!_openCollapseIds[idx];
+
+  var h = '<div class="match-row" style="flex-wrap:wrap">';
+  if (avatarUrl) {
+    h += '<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
+  } else {
+    h += '<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
+  }
+  h += '<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
+  var meta = [];
+  if (en.role)  meta.push(esc(en.role));
+  if (en.level) meta.push('Lv.'+esc(String(en.level)));
+  if (en.party) meta.push('⚔ '+esc(en.party));
+  if (meta.length) h += '<div class="match-meta" style="color:var(--gold)">'+meta.join(' · ')+'</div>';
+  h += '<div class="match-meta">'+esc(tsS);
+  if (m.matchId) h += ' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
+  if (en.uid)    h += ' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
+  h += '</div></div>';
+  h += '<div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'→'+(m.pointsAfter||0)+'</div></div>';
+  h += '<span class="result-badge '+rc+'">'+rl+'</span>';
+  h += '<button id="bls-btn-'+idx+'" class="match-collapse-btn'+(isOpen?' open':'')+'" onclick="toggleMatchCollapse('+idx+')">'+(isOpen?'▲ Stats':'▼ Stats')+'</button>';
+  h += '<div id="bls-expand-'+idx+'" class="match-bls-expand'+(isOpen?' open':'')+'" style="width:100%;flex-basis:100%">' +
+         buildBlsExpandHtml(m, idx) +
+       '</div>';
+  h += '</div>';
+  return h;
+}
+
+/** Flush the next chunk of _lastFilteredHistory rows into the DOM. */
+function historyFlushChunk() {
+  var c       = document.getElementById('history-list');
+  var total   = _lastFilteredHistory.length;
+  var start   = _histRenderedCount;
+  var end     = Math.min(start + HIST_PAGE_SIZE, total);
+  if (start >= total) { updateHistLoadMoreBtn(); return; }
+
+  // Render newest-first: display position 0 = array index (total-1),
+  // display position N = array index (total-1-N).
+  // We've already rendered 'start' items, so next display position is 'start'.
+  var frag = '';
+  for (var pos = start; pos < end; pos++) {
+    var arrIdx = total - 1 - pos;   // reverse: newest → oldest
+    if (arrIdx < 0) break;
+    frag += buildMatchRowHtml(_lastFilteredHistory[arrIdx], arrIdx);
+  }
+  c.insertAdjacentHTML('beforeend', frag);
+  _histRenderedCount = end;
+  updateHistLoadMoreBtn();
+}
+
+/** Re-render from scratch after filter/data change. */
 function renderHistory(history) {
   // Filter by search
   var filtered = history;
@@ -1105,80 +1203,68 @@ function renderHistory(history) {
     });
   }
 
-  // Only skip re-render if no search and length unchanged
-  if (!_histSearch && filtered.length === _lastHistLen) return;
+  // Avoid re-render when nothing changed and no search active
+  if (!_histSearch && filtered.length === _lastHistLen && filtered.length > 0) return;
   _lastHistLen = filtered.length;
+
+  // Update status row
+  var countEl = document.getElementById('hist-count-num');
+  var maxEl   = document.getElementById('hist-max-num');
+  if (countEl) countEl.textContent = (_histSearch
+      ? (filtered.length.toLocaleString() + ' / ' + history.length.toLocaleString())
+      : history.length.toLocaleString());
+  if (maxEl)   maxEl.textContent = MAX_HISTORY_CAP.toLocaleString();
 
   var c = document.getElementById('history-list');
   if (!filtered.length) {
     c.innerHTML = '<div class="empty-state">' +
       (_histSearch ? 'No players match "' + esc(_histSearch) + '".' : 'No matches recorded yet.') +
       '</div>';
+    _lastFilteredHistory = [];
+    _histRenderedCount   = 0;
+    updateHistLoadMoreBtn();
     return;
   }
 
+  // Store full filtered set; render first chunk only
   _lastFilteredHistory = filtered;
-  var h = '';
-  for (var i = filtered.length - 1; i >= 0; i--) {
-    var m   = filtered[i];
-    var en  = m.enemy || {};
-    var idx = i; // stable index for this filtered result
+  _histRenderedCount   = 0;
+  _openCollapseIds     = {}; // reset expand state on full re-render
+  c.innerHTML          = '';
+  historyFlushChunk();
+}
 
-    var d  = (m.pointsDelta != null) ? m.pointsDelta
-           : ((m.pointsAfter != null && m.pointsBefore != null) ? (m.pointsAfter - m.pointsBefore) : 0);
-    var dc = d >= 0 ? 'pos' : 'neg';
-    var ds = (d >= 0 ? '+' : '') + d;
-    var rc = m.result === 'win' ? 'win' : m.result === 'loss' ? 'loss' : 'tie';
-    var rl = m.result === 'win' ? 'W'  : m.result === 'loss' ? 'L'   : 'T';
-
-    var ts  = m.ts ? new Date(m.ts) : null;
-    var tsS = ts ? (pad2(ts.getMonth()+1)+'/'+pad2(ts.getDate())+' '+pad2(ts.getHours())+':'+pad2(ts.getMinutes())) : '';
-
-    var avatarUrl = en.avatarUrl || '';
-    if (avatarUrl && avatarUrl.indexOf('http') !== 0)
-      avatarUrl = 'https://demonicscans.org' + (avatarUrl.indexOf('/') === 0 ? '' : '/') + avatarUrl;
-
-    var isOpen = !!_openCollapseIds[idx];
-
-    h += '<div class="match-row" style="flex-wrap:wrap">';
-    // Avatar
-    if (avatarUrl) {
-      h += '<img class="match-avatar" src="'+esc(avatarUrl)+'" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2230%22 height=%2230%22><rect width=%2230%22 height=%2230%22 fill=%22%232a1f36%22/></svg>\'"/>';
-    } else {
-      h += '<div style="width:30px;height:30px;border-radius:50%;background:var(--bg3);flex-shrink:0"></div>';
-    }
-    // Info
-    h += '<div class="match-info"><div class="match-enemy">'+esc(en.name||'Unknown')+'</div>';
-    var meta = [];
-    if (en.role)  meta.push(esc(en.role));
-    if (en.level) meta.push('Lv.'+esc(String(en.level)));
-    if (en.party) meta.push('⚔ '+esc(en.party));
-    if (meta.length) h += '<div class="match-meta" style="color:var(--gold)">'+meta.join(' · ')+'</div>';
-    h += '<div class="match-meta">'+esc(tsS);
-    if (m.matchId) h += ' · <a href="#" onclick="Android.openMatch(\''+esc(m.matchId)+'\');return false">#'+esc(m.matchId)+'</a>';
-    if (en.uid)    h += ' · <a href="#" onclick="Android.openProfile(\''+esc(en.uid)+'\');return false">Profile</a>';
-    h += '</div></div>';
-    // Points
-    h += '<div class="match-pts"><div class="pts-delta '+dc+'">'+esc(ds)+'</div><div style="font-size:9px;color:var(--muted)">'+(m.pointsBefore||0)+'→'+(m.pointsAfter||0)+'</div></div>';
-    // Result badge
-    h += '<span class="result-badge '+rc+'">'+rl+'</span>';
-    // Collapse button
-    h += '<button id="bls-btn-'+idx+'" class="match-collapse-btn'+(isOpen?' open':'')+'" onclick="toggleMatchCollapse('+idx+')">'+(isOpen?'▲ Stats':'▼ Stats')+'</button>';
-    // Full-width BLS expand panel
-    h += '<div id="bls-expand-'+idx+'" class="match-bls-expand'+(isOpen?' open':'')+'" style="width:100%;flex-basis:100%">' +
-           buildBlsExpandHtml(m, idx) +
-         '</div>';
-    h += '</div>'; // /match-row
+/** Show/hide the "Load more" button. */
+function updateHistLoadMoreBtn() {
+  var btn = document.getElementById('hist-load-more');
+  if (!btn) return;
+  var remaining = _lastFilteredHistory.length - _histRenderedCount;
+  if (remaining > 0) {
+    btn.style.display = 'block';
+    btn.textContent   = 'Load ' + Math.min(remaining, HIST_PAGE_SIZE) + ' more… (' + remaining + ' remaining)';
+  } else {
+    btn.style.display = 'none';
   }
-  c.innerHTML = h;
+}
+
+/** Called by "Load more" button. */
+function historyLoadMore() {
+  if (_histRenderedCount < _lastFilteredHistory.length) historyFlushChunk();
 }
 
 function doResetWL() {
-  if (window.Android) { try { Android.setConfigValue('clear_history', '1'); } catch(e) {} }
+  if (window.Android) {
+    try { Android.resetSession(); } catch(e) {}
+  }
   _lastHistLen = 0;
   _historyData = [];
+  _lastFilteredHistory = [];
+  _histRenderedCount   = 0;
   setText('stat-matches','0'); setText('stat-wins','0'); setText('stat-losses','0'); setText('stat-wr','—');
+  var countEl = document.getElementById('hist-count-num');
+  if (countEl) countEl.textContent = '0';
   document.getElementById('history-list').innerHTML = '<div class="empty-state">History cleared.</div>';
+  updateHistLoadMoreBtn();
   showToast('W/L reset');
 }
 
@@ -1265,7 +1351,8 @@ function switchTab(name) {
   }
   if (name === 'history' && _state) {
     _historyData = _state.matchHistory || [];
-    _lastHistLen = -1;
+    _lastHistLen = -1;        // force full re-render
+    _histRenderedCount = 0;
     renderHistory(_historyData);
   }
   if (name === 'battle' && _state) { _lastLogHash = ''; renderLogs(_state.logs || ''); }
