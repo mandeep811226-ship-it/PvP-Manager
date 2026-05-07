@@ -389,7 +389,7 @@ public class MainActivity extends AppCompatActivity {
         if (bridge != null) bridge.setAddAccountMode(true);
 
         // 4. Open login overlay pointed at the sign-in page
-        showLoginInternal("https://demonicscans.org/sign.php");
+        showLoginInternal("https://demonicscans.org");
         if (bridge != null) bridge.appendLog("system", "Add account mode: cookies cleared, fresh login session");
     }
 
