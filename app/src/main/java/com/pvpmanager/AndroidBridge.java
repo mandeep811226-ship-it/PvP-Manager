@@ -941,4 +941,19 @@ public class AndroidBridge {
             }
         });
     }
+
+    /**
+     * Called by pvp_manager.js when the bot stops itself (tokens exhausted,
+     * stop-after-match completed, max-error limit hit, etc.).
+     * Clears the persisted KEY_RUNNING flag in SharedPrefs so the native
+     * Start/Stop button correctly flips from "Stop" back to "Start".
+     * Without this, getState() still reads KEY_RUNNING=true from SharedPrefs
+     * even though the JS closure has already set running=false.
+     */
+    @JavascriptInterface
+    public void onBotSelfStopped() {
+        putBoolScoped(KEY_RUNNING, false);
+        appendLog("system", "Bot self-stopped — native running flag cleared");
+        notifyUiStateChanged();
+    }
 }
