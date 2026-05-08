@@ -2291,7 +2291,7 @@
                     // Normalize stored matchId — support both spellings for backward compat
                     const _storedAtkId = cur.lastMatchId || cur.lastMatchld || null;
                     const _storedAtkNum = _storedAtkId
-                        ? (Number((_storedAtkId.match(/(\d+)$/) || [])[1]) || 0) : 0;
+                        ? (Number((String(_storedAtkId).match(/(\d+)$/) || [])[1]) || 0) : 0;
                     const _isNewerAtk = matchIdNum === null || matchIdNum >= _storedAtkNum;
                     if (_isNewerAtk) {
                         const _newEntry = Object.assign({}, cur, patch, {
@@ -3550,6 +3550,10 @@
             stopAfterMatch = false;
             currentStatus  = 'IDLE';
             renderGUI();
+            // Notify Android to clear its persisted KEY_RUNNING flag so the
+            // native Start/Stop button updates from "Stop" → "Start" even when
+            // the bot stopped itself (tokens exhausted, stop-after-match, etc.)
+            try { if (window.Android && typeof window.Android.onBotSelfStopped === 'function') window.Android.onBotSelfStopped(); } catch (_) {}
             addLog('Run stopped.', { color: '#aaa' });
             _keepAlive.stop();
         })();
@@ -4112,6 +4116,28 @@
 
     /** Expose state to Android — called on every tick by AndroidBridge.refreshLiveState(). */
     window.__pvpmState = buildAndroidState();
+
+    /**
+     * Remote control: AndroidBridge.surrenderMatch() evaluates this to forfeit the active match.
+     * Sends action:'surrender' to the battle-action endpoint for the current match, then
+     * sets stopFlag so the bot loop exits cleanly (match is over).
+     */
+    window.__pvpmSurrenderMatch = async function() {
+        const mId = currentMatchId;
+        if (!mId) {
+            addLog('Surrender: no active match ID — cannot forfeit.', { color: '#ffb74d' });
+            return;
+        }
+        try {
+            addLog('Surrendering match ' + mId + '\u2026', { color: '#ff7043' });
+            await pvpPost(BATTLE_ACT_URL, { match_id: mId, since_log_id: 0, action: 'surrender' });
+            addLog('Surrender request accepted by server.', { color: '#ffb74d' });
+            // Signal the bot loop to exit — the match has ended via surrender
+            stopFlag = true;
+        } catch (e) {
+            addLog('Surrender failed: ' + e.message, { color: '#ef5350' });
+        }
+    };
 
     /** Remote control: Android.setRunning(true/false) calls this. */
     window.__pvpmSetRunning = function(shouldRun) {
