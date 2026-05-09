@@ -2780,11 +2780,27 @@
                         ? `<div style="color:#666; font-size:11px; padding:8px 0;">No entries yet. Click "Add entry" below to start building your strategy.</div>`
                         : ''}
                 </div>
-                <button id="pvpm-strategy-add"
-                        style="margin-top:6px; padding:6px 12px; border-radius:6px; cursor:pointer;
-                               background:#1565c0; color:#fff; border:1px solid #1976d2; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:11px;">
-                    + Add entry
-                </button>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                    <button id="pvpm-strategy-add"
+                            style="padding:6px 12px; border-radius:6px; cursor:pointer;
+                                   background:#1565c0; color:#fff; border:1px solid #1976d2; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:11px;">
+                        + Add entry
+                    </button>
+                    <button id="pvpm-skill-refresh"
+                            style="padding:6px 12px; border-radius:6px; cursor:pointer;
+                                   background:#1a3a2a; color:#81c784; border:1px solid #2e7d32; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:11px;">
+                        🔄 Refresh Skills
+                    </button>
+                    <button id="pvpm-skill-refresh-info"
+                            style="padding:4px 7px; border-radius:50%; cursor:pointer;
+                                   background:transparent; color:#666; border:1px solid #333; font-size:12px; line-height:1;"
+                            title="What does Refresh Skills do?">ℹ️</button>
+                </div>
+                <div id="pvpm-skill-refresh-info-box" hidden
+                     style="color:#888; font-size:11px; margin-top:6px; padding:6px 8px;
+                            background:#111; border-left:2px solid #2a2a2a; border-radius:3px;">
+                    Tapping <strong style="color:#81c784;">Refresh Skills</strong> re-scans pvp.php and rebuilds the skill list in all dropdowns above. Use this whenever skills are added, removed, or renamed in the game so your strategy entries always show the correct options.
+                </div>
             </div>
         `;
 
@@ -2957,6 +2973,21 @@
                 };
             };
             wireInfoToggle('pvpm-strategy-info-btn', 'pvpm-strategy-info');
+            wireInfoToggle('pvpm-skill-refresh-info', 'pvpm-skill-refresh-info-box');
+
+            const refreshSkillsEl = document.getElementById('pvpm-skill-refresh');
+            if (refreshSkillsEl) refreshSkillsEl.onclick = () => {
+                skillList = [];            // clear cache so scrapeSkillList re-reads the page
+                scrapeSkillList();         // populate immediately
+                const count = skillList.length;
+                refreshSkillsEl.textContent = count ? `✓ ${count} skills` : '⚠ None found';
+                refreshSkillsEl.style.color = count ? '#66bb6a' : '#ef5350';
+                setTimeout(() => {
+                    refreshSkillsEl.textContent = '🔄 Refresh Skills';
+                    refreshSkillsEl.style.color = '#81c784';
+                }, 2000);
+                if (count) renderGUI();   // rebuild dropdowns with fresh skill list
+            };
 
             const addEl = document.getElementById('pvpm-strategy-add');
             if (addEl) addEl.onclick = () => {
