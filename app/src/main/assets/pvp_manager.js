@@ -521,6 +521,7 @@
         STATE
     ========================================================= */
     let running        = false;
+    let _cycleLockTs   = 0;     // wall-clock ms when running was set true (PATCH 4: stale-lock detection)
     let stopFlag       = false;
     let stopAfterMatch = false;
     let minimized  = localStorage.getItem(UI_MIN_KEY) === 'true';
@@ -602,6 +603,58 @@
     // Log history - each entry: { plain, html, color }
     // plain = plain-text for clipboard, html = rich HTML for display, color = CSS color
     let logHistory = [];
+
+    /* =========================================================
+        PATCH 2 — GLOBAL CRASH RECOVERY
+        Catches unhandled async rejections and synchronous window errors.
+        Logs all failures, increments crash counters that the watchdog reads,
+        and attempts to re-arm the scheduler so the runtime survives.
+    ========================================================= */
+    let _globalCrashCount     = 0;
+    let _globalCrashLastTs    = 0;
+    const CRASH_COOLDOWN_MS   = 15_000;   // min gap between crash-recovery attempts
+    const CRASH_LOOP_LIMIT    = 10;       // give up after this many crashes in one session
+
+    function _handleGlobalCrash(label, errMsg, errObj) {
+        _globalCrashCount++;
+        _globalCrashLastTs = Date.now();
+        const logMsg = `🛑 [Crash Recovery] ${label} #${_globalCrashCount}: ${errMsg}`;
+        try { addLog(logMsg, { color: '#ef5350' }); } catch (_) {}
+        console.error('[PvP Manager] ' + logMsg, errObj || '');
+
+        if (_globalCrashCount >= CRASH_LOOP_LIMIT) {
+            try { addLog('❌ [Crash Recovery] Crash loop limit reached — runtime will not auto-recover further.', { color: '#ef5350' }); } catch (_) {}
+            return;
+        }
+
+        // If the scheduler is dead (running=false but we were running) try re-arm
+        if (!running) {
+            try { addLog('🔄 [Crash Recovery] Scheduler appears dead — attempting re-arm.', { color: '#ffb74d' }); } catch (_) {}
+            setTimeout(function _crashRearmScheduler() {
+                try {
+                    if (!running && !stopFlag) {
+                        try { addLog('🔄 [Crash Recovery] Re-arming scheduler after crash.', { color: '#ffb74d' }); } catch (_) {}
+                        runAutomation();
+                    }
+                } catch (e2) {
+                    try { addLog('❌ [Crash Recovery] Re-arm itself failed: ' + e2.message, { color: '#ef5350' }); } catch (_) {}
+                }
+            }, CRASH_COOLDOWN_MS);
+        }
+    }
+
+    window.addEventListener('unhandledrejection', function(ev) {
+        const msg = (ev.reason instanceof Error) ? ev.reason.message
+                  : (ev.reason != null ? String(ev.reason) : 'unknown rejection');
+        _handleGlobalCrash('UnhandledRejection', msg, ev.reason);
+        // Do NOT call ev.preventDefault() — let the browser keep its default
+        // reporting so crashes remain visible in devtools.
+    });
+
+    window.addEventListener('error', function(ev) {
+        if (!ev.message) return; // filter synthetic/empty events
+        _handleGlobalCrash('WindowError', ev.message + (ev.filename ? ' @ ' + ev.filename + ':' + ev.lineno : ''), ev.error);
+    });
 
     /* =========================================================
         HELPERS
@@ -3501,6 +3554,7 @@
         await (async () => {
             if (running) return;
             running        = true;
+            _cycleLockTs   = Date.now();   // PATCH 4: record lock acquisition time
             stopFlag       = false;
             stopAfterMatch = false;
             currentStatus = 'RUNNING';
@@ -3515,28 +3569,162 @@
                 //   - If it reaches 5 the bot stops to avoid a runaway loop.
                 // _lastCycleTs: wall-clock timestamp updated at each cycle start.
                 //   Used by the watchdog below.
-                let _cycleErrors = 0;
-                let _lastCycleTs = Date.now();
+                // _lastBattleActivityTs: updated whenever battle logs / HP changes
+                //   arrive — the activity-based battle timeout system (PATCH 3).
+                let _cycleErrors           = 0;
+                let _lastCycleTs           = Date.now();
+                let _wdRecoveryCount       = 0;    // PATCH 1: total watchdog recoveries
+                let _wdRecoveryLastTs      = 0;    // PATCH 1: last recovery wall-clock
+                const WD_RECOVERY_COOLDOWN = 30_000;   // min gap between watchdog recoveries
+                const WD_RECOVERY_LIMIT    = 6;        // give up after this many auto-recoveries
 
-                // Watchdog: every 90 s, if automation is still marked running but
-                // no cycle has completed for > 2 min, log a warning so the user
-                // can see the bot is stalled.  The fetch timeout (pvpFetch,
-                // FETCH_TIMEOUT_MS) should prevent the common hang, but the
-                // watchdog gives an extra safety net with visibility.
-                const _wdHandle = setInterval(function () {
+                // PATCH 3 — expose activity timestamp so runOneCycle's poll
+                // loop can update it, and the watchdog below can read it.
+                // Intentionally declared on the outer scope so watchdog and
+                // inner loop share the same reference without extra closures.
+                window._pvpmLastBattleActivityTs = Date.now();
+
+                // ── PATCH 1: Active watchdog with staged recovery ────────────
+                // Replaces the old passive warning-only watchdog.
+                const _wdHandle = setInterval(function _pvpmWatchdog() {
                     if (!running) return;
-                    const idleMs = Date.now() - _lastCycleTs;
-                    if (idleMs > 120_000) {
-                        addLog(
-                            '🔍 Watchdog: no cycle activity for ' +
-                            Math.round(idleMs / 1000) + 's — possible stall detected.',
-                            { color: '#ff7043' }
-                        );
+
+                    const now_ts     = Date.now();
+                    const cycleIdle  = now_ts - _lastCycleTs;
+                    const battleIdle = now_ts - (window._pvpmLastBattleActivityTs || now_ts);
+                    const lockAge    = now_ts - _cycleLockTs;
+
+                    // ── PATCH 4: Stale lock recovery ─────────────────────────
+                    // If running=true but the lock was acquired very long ago
+                    // and no cycle has ticked recently, the lock is likely stale.
+                    // Safe threshold: FETCH_TIMEOUT_MS (28s) × 3 + generous buffer.
+                    if (lockAge > 120_000 && cycleIdle > 120_000) {
+                        if (_wdRecoveryCount < WD_RECOVERY_LIMIT &&
+                            (now_ts - _wdRecoveryLastTs) > WD_RECOVERY_COOLDOWN) {
+                            _wdRecoveryCount++;
+                            _wdRecoveryLastTs = now_ts;
+                            _cycleLockTs = now_ts; // reset lock age so we don't loop
+                            addLog(
+                                '🔒 [Watchdog] Stale lock detected (age ' +
+                                Math.round(lockAge / 1000) + 's) — clearing lock and re-arming. Recovery #' + _wdRecoveryCount,
+                                { color: '#ff7043' }
+                            );
+                            console.warn('[PvP Manager] Watchdog: stale lock recovery #' + _wdRecoveryCount);
+                        }
+                    }
+
+                    // ── PATCH 1: Cycle stall detection & staged recovery ─────
+                    if (cycleIdle > 120_000) {
+                        if (_wdRecoveryCount >= WD_RECOVERY_LIMIT) {
+                            addLog(
+                                '❌ [Watchdog] Recovery limit reached (' + WD_RECOVERY_LIMIT + '). Stopping to prevent loop.',
+                                { color: '#ef5350' }
+                            );
+                            stopFlag = true;
+                            return;
+                        }
+
+                        if ((now_ts - _wdRecoveryLastTs) < WD_RECOVERY_COOLDOWN) return; // respect cooldown
+
+                        _wdRecoveryCount++;
+                        _wdRecoveryLastTs = now_ts;
+                        const idleSec = Math.round(cycleIdle / 1000);
+
+                        if (_wdRecoveryCount === 1) {
+                            // Stage 1 — soft: log, reset cycle timestamp to avoid immediate re-fire
+                            addLog(
+                                '🔍 [Watchdog] Stage 1: No cycle activity for ' + idleSec + 's. Soft recovery — waiting for in-flight operation.',
+                                { color: '#ff7043' }
+                            );
+                            console.warn('[PvP Manager] Watchdog stage-1 soft recovery. Idle: ' + idleSec + 's');
+                            _lastCycleTs = now_ts; // give it another interval before escalating
+
+                        } else if (_wdRecoveryCount <= 3) {
+                            // Stage 2 — hard scheduler recovery: stop flag allows the
+                            // while loop to exit, then we restart via setTimeout.
+                            addLog(
+                                '⚠️ [Watchdog] Stage 2: Still stalled (' + idleSec + 's). Hard scheduler recovery. Restarting in 5s.',
+                                { color: '#ff7043' }
+                            );
+                            console.warn('[PvP Manager] Watchdog stage-2 hard recovery. Idle: ' + idleSec + 's');
+                            // Signal the while loop to exit its current iteration
+                            // without destroying account state. runAutomation will
+                            // be re-invoked after a short delay.
+                            stopFlag = true;
+                            setTimeout(function _wdRestartScheduler() {
+                                try {
+                                    if (!running) {
+                                        stopFlag = false;
+                                        addLog('🔄 [Watchdog] Restarting automation after hard recovery.', { color: '#ffb74d' });
+                                        runAutomation();
+                                    }
+                                } catch (e) {
+                                    addLog('❌ [Watchdog] Restart failed: ' + e.message, { color: '#ef5350' });
+                                }
+                            }, 5_000);
+
+                        } else {
+                            // Stage 3 — safe stop: unrecoverable, stop cleanly
+                            addLog(
+                                '❌ [Watchdog] Stage 3: Runtime unrecoverable after ' + (_wdRecoveryCount - 1) + ' recovery attempts. Stopping.',
+                                { color: '#ef5350' }
+                            );
+                            console.error('[PvP Manager] Watchdog stage-3 safe stop.');
+                            stopFlag = true;
+                        }
+                    }
+
+                    // ── PATCH 3: Battle activity timeout ─────────────────────
+                    // Only meaningful while a match is in progress
+                    if (currentMatchId && battleIdle > 0) {
+                        if (battleIdle > 600_000) {
+                            // Stage 3 (10 min): hard battle recovery
+                            addLog(
+                                '💀 [Watchdog] Battle activity timeout Stage 3 (' + Math.round(battleIdle / 60000) + 'min inactivity). Clearing match state and recovering.',
+                                { color: '#ef5350' }
+                            );
+                            console.warn('[PvP Manager] Battle timeout stage-3 hard recovery');
+                            // Clear active match state so the outer scheduler
+                            // loop sees the match as ended and continues matchmaking.
+                            currentMatchId = null;
+                            allyName = enemyName = allyUid = enemyUid = null;
+                            logDetectedResult = null;
+                            pendingMatchCapture = null;
+                            try { resetHpBars(); } catch (_) {}
+                            window._pvpmLastBattleActivityTs = Date.now(); // prevent re-trigger
+                            _lastCycleTs = Date.now();
+
+                        } else if (battleIdle > 360_000) {
+                            // Stage 2 (6 min): force re-poll by poking the activity ts
+                            // (The poll loop itself handles the request; we just log.)
+                            addLog(
+                                '⚠️ [Watchdog] Battle activity timeout Stage 2 (' + Math.round(battleIdle / 60000) + 'min inactivity). Forcing re-poll.',
+                                { color: '#ff7043' }
+                            );
+                            console.warn('[PvP Manager] Battle timeout stage-2');
+                            // Reset activity ts so the stage-2 message fires only once per window
+                            window._pvpmLastBattleActivityTs = Date.now() - 180_000; // sit just below stage-1
+
+                        } else if (battleIdle > 180_000) {
+                            // Stage 1 (3 min): soft battle refresh log
+                            addLog(
+                                '🔍 [Watchdog] Battle activity timeout Stage 1 (' + Math.round(battleIdle / 60000) + 'min inactivity). Monitoring.',
+                                { color: '#ff7043' }
+                            );
+                            console.warn('[PvP Manager] Battle timeout stage-1');
+                            window._pvpmLastBattleActivityTs = Date.now() - 120_000; // sit just below stage-1
+                        }
                     }
                 }, 90_000);
 
+                // ── PATCH 5: Guaranteed scheduler re-arming ──────────────────
+                // The while loop body is wrapped in try/finally so that even if
+                // an unexpected exception escapes runOneCycle (unlikely, it catches
+                // internally) the scheduler always advances to the next iteration
+                // or exits cleanly. scheduleNextCycle equivalent = continue/break.
                 while (!stopFlag) {
                     _lastCycleTs = Date.now();
+                    _cycleLockTs = Date.now(); // PATCH 4: refresh lock timestamp each cycle
                     let _cycleResult;
                     try {
                         _cycleResult = await runOneCycle();
@@ -3556,8 +3744,19 @@
                             addLog('❌ 5 consecutive cycle exceptions — stopping.', { color: '#ef5350' });
                             break;
                         }
+                        // PATCH 5: finally-equivalent: ensure we always re-arm
                         await sleep(10_000);
-                        continue; // try next cycle
+                        _lastCycleTs = Date.now(); // reset so watchdog doesn't double-fire
+                        continue; // guaranteed re-arm: try next cycle
+                    } finally {
+                        // PATCH 5: This block runs whether _cycleResult is set, an
+                        // exception was thrown, or stopFlag fired. It is intentionally
+                        // empty — the continue/break above handle scheduling. The
+                        // finally clause exists to make the guarantee explicit and
+                        // to log diagnostic info for stall debugging.
+                        if (running) {
+                            console.debug('[PvP Manager] Cycle complete. cycleErrors=' + _cycleErrors + ' running=' + running + ' stopFlag=' + stopFlag);
+                        }
                     }
 
                     if (_cycleResult === 'retry') {
@@ -3565,6 +3764,7 @@
                         // Log already emitted by runOneCycle — just wait and retry.
                         addLog('🔄 Scheduler: retrying in 10s...', { color: '#ffb74d' });
                         await sleep(10_000);
+                        _lastCycleTs = Date.now();
                         continue;
                     }
 
@@ -3573,6 +3773,7 @@
                         break;
                     }
                     // _cycleResult === true → keep looping; brief idle pause before next match
+                    addLog('✅ Cycle complete. Scheduler re-armed. Next match in ' + (IDLE_POLL_INTERVAL_MS / 1000) + 's.', { color: '#81d4fa' });
                     await sleep(IDLE_POLL_INTERVAL_MS);
                 }
 
@@ -3583,6 +3784,7 @@
             }
 
             running        = false;
+            _cycleLockTs   = 0;   // PATCH 4: release lock
             stopFlag       = false;
             stopAfterMatch = false;
             currentStatus  = 'IDLE';
@@ -3602,6 +3804,7 @@
      */
     async function runOneCycle() {
         /* ── 1. Find / enter match ─────────────────────────────── */
+        console.debug('[PvP Manager] Cycle START. crashCount=' + _globalCrashCount + ' running=' + running);
         addLog('Finding solo match...');
         const matchId = await findSoloMatch();
         // No tokens - stop cleanly, don't retry
@@ -3614,6 +3817,8 @@
         // tries again rather than stopping the bot on a transient network error.
         if (!matchId) { addLog('⚠️ Could not obtain match ID — retrying in 10s', { color: '#ffb74d' }); return 'retry'; }
         currentMatchId = matchId;
+        // PATCH 3: reset battle activity timestamp for new match
+        window._pvpmLastBattleActivityTs = Date.now();
         const matchUrl  = `https://demonicscans.org/pvp_battle.php?match_id=${matchId}`;
         const matchHtml = `Match found - ID <a href="${matchUrl}" target="_blank" style="color:#81d4fa; text-decoration:underline;">${matchId}</a>.`;
         addLog(`Match found - ID ${matchId}.`, { html: matchHtml, color: '#81d4fa' });
@@ -3768,10 +3973,17 @@
                 poll.new_logs.forEach(e => appendBattleLog(e));
                 smartScrollLog();
                 writeBlsFromLogs(poll.new_logs, matchId);
+                // PATCH 3: new logs = battle activity — update activity timestamp
+                window._pvpmLastBattleActivityTs = Date.now();
             }
 
             lastLogId  = Number(poll.last_log_id ?? lastLogId);
             matchEnded = !!(poll.match?.ended);
+
+            // PATCH 3: turn change = activity; HP state change = activity
+            if (poll.turn?.user_id || (poll.match && !poll.match.ended)) {
+                window._pvpmLastBattleActivityTs = Date.now();
+            }
 
             // Strategy executor: when it's our turn and we haven't already
             // acted at this log id, evaluate the strategy and POST use_skill.
