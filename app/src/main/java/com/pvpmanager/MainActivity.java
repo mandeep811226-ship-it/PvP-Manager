@@ -228,7 +228,7 @@ public class MainActivity extends AppCompatActivity {
         // ── Account chip (floating, top-left) ────────────────────────────────
         accountChipContainer = buildAccountChip();
         FrameLayout.LayoutParams chipP = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+                dp(160), FrameLayout.LayoutParams.WRAP_CONTENT);
         chipP.gravity = Gravity.TOP | Gravity.START;
         chipP.topMargin  = dp(8);
         chipP.leftMargin = dp(8);
@@ -511,7 +511,7 @@ public class MainActivity extends AppCompatActivity {
         // into the dropdown arrow or push the chip past its container.
         LinearLayout.LayoutParams nameP = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        chipNameText.setMaxWidth(dp(120));
+        chipNameText.setMaxWidth(dp(80));
         row.addView(chipNameText, nameP);
 
         // Arrow
