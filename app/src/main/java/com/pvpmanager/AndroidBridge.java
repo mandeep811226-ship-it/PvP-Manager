@@ -103,11 +103,11 @@ public class AndroidBridge {
     }
 
     void putBoolScoped(String baseKey, boolean val) {
-        prefs.edit().putBoolean(scopedKey(baseKey), val).commit();
+        prefs.edit().putBoolean(scopedKey(baseKey), val).apply();
     }
 
     void putStringScoped(String baseKey, String val) {
-        prefs.edit().putString(scopedKey(baseKey), val).commit();
+        prefs.edit().putString(scopedKey(baseKey), val).apply();
     }
 
     void removeScoped(String baseKey) {
@@ -179,7 +179,7 @@ public class AndroidBridge {
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) ed.putBoolean(KEY_SESSION_VERIFIED, true);
         else           ed.remove(KEY_SESSION_VERIFIED);
-        ed.commit();
+        ed.apply();
         appendLog("system", connected ? "✅ Connected" : "❌ Disconnected");
         notifyUiStateChanged();
     }
@@ -304,7 +304,7 @@ public class AndroidBridge {
         // Stop bot and clear session for active account
         String activeId = accountStore.getActiveAccountId();
         putBoolScoped(KEY_RUNNING, false);
-        prefs.edit().remove(KEY_SESSION_VERIFIED).commit();
+        prefs.edit().remove(KEY_SESSION_VERIFIED).apply();
         if (activeId != null) {
             accountStore.removeAccount(activeId);
             removeAccountScopedData(activeId);
@@ -369,7 +369,7 @@ public class AndroidBridge {
             if (connected) {
                 String cookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
                 if (cookies == null || cookies.trim().isEmpty()) {
-                    prefs.edit().remove(KEY_SESSION_VERIFIED).commit();
+                    prefs.edit().remove(KEY_SESSION_VERIFIED).apply();
                     connected = false;
                     appendLog("system", "Session expired — cookies missing, marked disconnected");
                 }
@@ -543,7 +543,7 @@ public class AndroidBridge {
     @JavascriptInterface
     public void setConfigBool(String key, boolean value) {
         if ("debug_logs".equals(key)) {
-            prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).commit();
+            prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).apply();
             evaluateInGameWebView("localStorage.setItem('et_pvp_debug_logs','" + value + "');");
         }
     }
@@ -551,7 +551,7 @@ public class AndroidBridge {
     @JavascriptInterface
     public void setConfigValue(String key, String value) {
         if ("poll_interval_ms".equals(key)) {
-            prefs.edit().putString(KEY_POLL_INTERVAL, value).commit();
+            prefs.edit().putString(KEY_POLL_INTERVAL, value).apply();
         } else if ("clear_history".equals(key)) {
             try {
                 String cached = getStringScoped(KEY_CACHED_LIVE, null);
@@ -652,7 +652,7 @@ public class AndroidBridge {
     public void saveBlsMemory(String jsonString) {
         try { new JSONObject(jsonString); }
         catch (JSONException e) { appendLog("error", "saveBlsMemory: invalid JSON — not saved"); return; }
-        prefs.edit().putString(KEY_BLS_MEMORY, jsonString).commit();
+        prefs.edit().putString(KEY_BLS_MEMORY, jsonString).apply();
         final String escaped = jsonString.replace("\\", "\\\\").replace("'", "\\'");
         evaluateInGameWebView("try{localStorage.setItem('bls_memory','" + escaped + "');}catch(e){}");
         appendLog("system", "BLS memory saved (" + jsonString.length() + " bytes)");
