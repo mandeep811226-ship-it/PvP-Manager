@@ -511,10 +511,8 @@ public class MainActivity extends AppCompatActivity {
         // into the dropdown arrow or push the chip past its container.
         LinearLayout.LayoutParams nameP = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        nameP.width = LinearLayout.LayoutParams.WRAP_CONTENT;
         chipNameText.setMaxWidth(dp(120));
-        row.addView(chipNameText, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        row.addView(chipNameText, nameP);
 
         // Arrow
         TextView arrow = new TextView(this);
