@@ -232,7 +232,8 @@ public class AndroidBridge {
                 "      ||document.querySelector('h1.name')" +
                 "      ||document.querySelector('h2.name');" +
                 "    var name=nameEl?nameEl.textContent.trim():'';" +
-                "    if(!name||name.length<1){var lt=(link.textContent||'').trim();if(lt&&lt.length>1&&!lt.startsWith('http'))name=lt;}" +
+                "    var link=document.querySelector('a[href*=\"player.php?pid=\"]');" +
+                "    if(!name||name.length<1){var lt=(link&&link.textContent||'').trim();if(lt&&lt.length>1&&!lt.startsWith('http'))name=lt;}" +
                 "    if(!name||name.length<1)name='Unknown';" +
                 "    var avaEl=document.querySelector('.small-ava img')" +
                 "      ||document.querySelector('.user-avatar img')" +
@@ -481,7 +482,7 @@ public class AndroidBridge {
                 "(function(){" +
                 "  var s = window.__pvpmState;" +
                 "  if (!s || typeof s !== 'object') return null;" +
-                "  try { return JSON.parse(JSON.stringify(s)); } catch(e) { return null; }" +
+                "  try { return s; } catch(e) { return null; }" +
                 "})()",
                 value -> {
                     if (value == null || value.equals("null")) return;
@@ -517,7 +518,7 @@ public class AndroidBridge {
             JSONObject obj = new JSONObject(raw);
             obj.put("enabled", enabled);
             putStringScoped(KEY_STRATEGY, obj.toString());
-            String esc = obj.toString().replace("'", "\\'");
+            String esc = obj.toString().replace("\\", "\\\\").replace("'", "\\'");
             evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy','" + esc + "');");
         } catch (JSONException e) {
             appendLog("error", "Strategy error: " + e.getMessage());
@@ -532,7 +533,7 @@ public class AndroidBridge {
             JSONObject obj = new JSONObject(raw);
             obj.put("entries", entries);
             putStringScoped(KEY_STRATEGY, obj.toString());
-            String esc = obj.toString().replace("'", "\\'");
+            String esc = obj.toString().replace("\\", "\\\\").replace("'", "\\'");
             evaluateInGameWebView("localStorage.setItem('et_pvp_solo_strategy','" + esc + "');");
         } catch (JSONException e) {
             appendLog("error", "saveStrategy error: " + e.getMessage());
