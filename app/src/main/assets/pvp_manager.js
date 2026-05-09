@@ -442,7 +442,8 @@
     const PVP_URL          = 'https://demonicscans.org/pvp.php';
     const PROFILE_URL      = 'https://demonicscans.org/player.php';
 
-    const POLL_INTERVAL_MS = 1500;   // ms between battle state polls
+    const POLL_INTERVAL_MS      = 1500;   // ms between polls during active battle
+    const IDLE_POLL_INTERVAL_MS = 5000;   // ms between polls when idle / finding match
     const LOG_LIMIT        = 500;    // max entries kept in log
 
     const PANEL_POS_KEY    = 'et_pvp_panel_pos';
@@ -3567,7 +3568,8 @@
                         // Intentional stop (false): no tokens, stopAfterMatch, stopFlag
                         break;
                     }
-                    // _cycleResult === true → keep looping
+                    // _cycleResult === true → keep looping; brief idle pause before next match
+                    await sleep(IDLE_POLL_INTERVAL_MS);
                 }
 
                 clearInterval(_wdHandle);
