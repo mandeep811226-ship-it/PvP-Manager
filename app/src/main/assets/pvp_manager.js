@@ -3233,6 +3233,10 @@
         if (data && data.status && data.status !== 'success') {
             const msg = data.message || data.status;
             addLog(`ERROR: Matchmake failed - ${msg}`, { color: '#ef5350' });
+            // Out-of-tokens: stop the bot cleanly instead of retrying forever
+            if (typeof msg === 'string' && msg.toLowerCase().includes('token')) {
+                return 'no_tokens';
+            }
             return null;
         }
 
@@ -3600,6 +3604,12 @@
         /* ── 1. Find / enter match ─────────────────────────────── */
         addLog('Finding solo match...');
         const matchId = await findSoloMatch();
+        // No tokens - stop cleanly, don't retry
+        if (matchId === 'no_tokens') {
+            addLog('⛔ Stopping: out of PvP tokens. Bot stopped automatically.', { color: '#ef5350' });
+            stopFlag = true;
+            return false;
+        }
         // Return 'retry' (not false) so the outer scheduler loop waits 10 s and
         // tries again rather than stopping the bot on a transient network error.
         if (!matchId) { addLog('⚠️ Could not obtain match ID — retrying in 10s', { color: '#ffb74d' }); return 'retry'; }
