@@ -2316,7 +2316,7 @@
                     // Normalize stored matchId — support both spellings for backward compat
                     const _storedDefId = cur.lastMatchId || cur.lastMatchld || null;
                     const _storedDefNum = _storedDefId
-                        ? (Number((String(_storedDefId.match(/(\d+)$/) || [])[1]) || 0) : 0;
+                        ? (Number((String(_storedDefId).match(/(\d+)$/) || [])[1]) || 0) : 0;
                     const _isNewerDef = matchIdNum === null || matchIdNum >= _storedDefNum;
                     if (_isNewerDef) {
                         const _newDefEntry = Object.assign({}, cur, patch, {
