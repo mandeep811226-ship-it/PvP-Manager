@@ -51,6 +51,12 @@ public class AndroidBridge {
     /** True while the user is adding a new account — forces getState() to report disconnected. */
     private volatile     boolean addAccountModeActive = false;
 
+    // ── getState() result cache (PATCH 1) ─────────────────────────────────────
+    /** Last serialized state string; returned immediately when state hasn't changed. */
+    private volatile String  _cachedStateString = null;
+    /** Set to true whenever any state mutation occurs; cleared after caching. */
+    private volatile boolean _stateDirty        = true;
+
     private final Runnable blsSyncRunnable = new Runnable() {
         @Override public void run() {
             performBlsSync();
@@ -140,6 +146,7 @@ public class AndroidBridge {
 
     /** Called by MainActivity to isolate the UI during add-account flow. */
     public void setAddAccountMode(boolean active) {
+        _stateDirty = true;
         addAccountModeActive = active;
         notifyUiStateChanged();
     }
@@ -176,6 +183,7 @@ public class AndroidBridge {
 
     // ── Session ───────────────────────────────────────────────────────────────
     public void setConnected(boolean connected) {
+        _stateDirty = true;
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) ed.putBoolean(KEY_SESSION_VERIFIED, true);
         else           ed.remove(KEY_SESSION_VERIFIED);
@@ -337,6 +345,9 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public String getState() {
+        // PATCH 1 — return cached string immediately when nothing has changed
+        if (!_stateDirty && _cachedStateString != null) return _cachedStateString;
+
         try {
             JSONObject state = new JSONObject();
 
@@ -420,31 +431,16 @@ public class AndroidBridge {
                 for (String line : logLines) sb.append(line).append("\n");
             }
 
+            // PATCH 3 — parse KEY_CACHED_LIVE once; reuse for both gameLogs and match/stats/etc.
             String gameLogs = "";
-            String cachedForLogs = getStringScoped(KEY_CACHED_LIVE, null);
-            if (cachedForLogs != null) {
-                try {
-                    JSONObject liveForLogs = new JSONObject(cachedForLogs);
-                    gameLogs = liveForLogs.optString("gameLogs", "");
-                } catch (JSONException ignored) {}
-            }
-
-            String systemLogs = sb.toString();
-            String combinedLogs;
-            if (!gameLogs.isEmpty() && !systemLogs.trim().isEmpty()) {
-                combinedLogs = gameLogs + "\n" + systemLogs;
-            } else if (!gameLogs.isEmpty()) {
-                combinedLogs = gameLogs;
-            } else {
-                combinedLogs = systemLogs;
-            }
-            state.put("logs", combinedLogs);
-
             boolean liveLoaded = false;
             String cachedLive = getStringScoped(KEY_CACHED_LIVE, null);
             if (cachedLive != null) {
                 try {
                     JSONObject live = new JSONObject(cachedLive);
+                    // gameLogs section (was a second getStringScoped + parse before)
+                    gameLogs = live.optString("gameLogs", "");
+                    // match / stats / skill sections
                     state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
                     state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
                     state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
@@ -458,6 +454,18 @@ public class AndroidBridge {
                     removeScoped(KEY_CACHED_LIVE);
                 }
             }
+
+            String systemLogs = sb.toString();
+            String combinedLogs;
+            if (!gameLogs.isEmpty() && !systemLogs.trim().isEmpty()) {
+                combinedLogs = gameLogs + "\n" + systemLogs;
+            } else if (!gameLogs.isEmpty()) {
+                combinedLogs = gameLogs;
+            } else {
+                combinedLogs = systemLogs;
+            }
+            state.put("logs", combinedLogs);
+
             if (!liveLoaded) {
                 state.put("match",        new JSONObject("{\"active\":false}"));
                 state.put("stats",        new JSONObject());
@@ -466,7 +474,10 @@ public class AndroidBridge {
                 state.put("battleStats",  new JSONObject());
             }
 
-            return state.toString();
+            // PATCH 1 — cache the result; clear dirty flag
+            _cachedStateString = state.toString();
+            _stateDirty        = false;
+            return _cachedStateString;
 
         } catch (JSONException e) {
             Log.e("PvPManager", "getState error: " + e.getMessage());
@@ -500,6 +511,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setRunning(boolean running) {
+        _stateDirty = true;
         if (running && !isSessionVerified()) {
             appendLog("system", "Cannot start — not connected");
             notifyUiStateChanged();
@@ -513,6 +525,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setStrategyEnabled(boolean enabled) {
+        _stateDirty = true;
         try {
             String raw = getStringScoped(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
             JSONObject obj = new JSONObject(raw);
@@ -527,6 +540,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void saveStrategy(String jsonString) {
+        _stateDirty = true;
         try {
             JSONArray entries = new JSONArray(jsonString);
             String raw = getStringScoped(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
@@ -542,6 +556,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setConfigBool(String key, boolean value) {
+        _stateDirty = true;
         if ("debug_logs".equals(key)) {
             prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).apply();
             evaluateInGameWebView("localStorage.setItem('et_pvp_debug_logs','" + value + "');");
@@ -550,6 +565,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setConfigValue(String key, String value) {
+        _stateDirty = true;
         if ("poll_interval_ms".equals(key)) {
             prefs.edit().putString(KEY_POLL_INTERVAL, value).apply();
         } else if ("clear_history".equals(key)) {
@@ -788,6 +804,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void clearLogs() {
+        _stateDirty = true;
         // 1. Clear Android-side log buffer
         synchronized (logLines) { logLines.clear(); }
 
@@ -816,6 +833,7 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void resetSession() {
+        _stateDirty = true;
         // 1. Zero the live counters inside gameWebView (runtime + scoped localStorage)
         mainHandler.post(() -> {
             if (gameWebView != null) {
@@ -927,6 +945,7 @@ public class AndroidBridge {
     }
 
     public void appendLog(String type, String message) {
+        _stateDirty = true;
         String line = System.currentTimeMillis() + "|" + type + "|" + message;
         synchronized (logLines) {
             logLines.addLast(line);
@@ -936,6 +955,7 @@ public class AndroidBridge {
     }
 
     public void notifyUiStateChanged() {
+        _stateDirty = true;
         mainHandler.post(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
@@ -953,6 +973,7 @@ public class AndroidBridge {
      */
     @JavascriptInterface
     public void onBotSelfStopped() {
+        _stateDirty = true;
         putBoolScoped(KEY_RUNNING, false);
         appendLog("system", "Bot self-stopped — native running flag cleared");
         notifyUiStateChanged();
