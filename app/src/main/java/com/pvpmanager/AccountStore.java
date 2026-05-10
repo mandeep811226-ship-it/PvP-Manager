@@ -21,15 +21,24 @@ public class AccountStore {
 
     private final SharedPreferences prefs;
 
+    // ── In-memory account cache (PATCH 2) ─────────────────────────────────────
+    /** Parsed account list; null means the cache is cold and must be loaded from prefs. */
+    private JSONArray _cachedAccounts = null;
+    /** True whenever the prefs backing store may differ from _cachedAccounts. */
+    private boolean   _accountsDirty  = true;
+
     public AccountStore(Context context) {
         this.prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
     // ── Account list ─────────────────────────────────────────────────────────
 
-    public JSONArray getAccounts() {
-        try { return new JSONArray(prefs.getString(KEY_ACCOUNTS, "[]")); }
-        catch (JSONException e) { return new JSONArray(); }
+    public synchronized JSONArray getAccounts() {
+        if (!_accountsDirty && _cachedAccounts != null) return _cachedAccounts;
+        try { _cachedAccounts = new JSONArray(prefs.getString(KEY_ACCOUNTS, "[]")); }
+        catch (JSONException e) { _cachedAccounts = new JSONArray(); }
+        _accountsDirty = false;
+        return _cachedAccounts;
     }
 
     public JSONObject getAccount(String playerId) {
@@ -45,7 +54,7 @@ public class AccountStore {
     }
 
     /** Save or update an account. Uses playerId as the primary key. */
-    public void saveAccount(JSONObject account) {
+    public synchronized void saveAccount(JSONObject account) {
         if (account == null) return;
         String pid = account.optString("playerId", "");
         if (pid.isEmpty()) return;
@@ -63,10 +72,11 @@ public class AccountStore {
         }
         if (!found) arr.put(account);
         prefs.edit().putString(KEY_ACCOUNTS, arr.toString()).apply();
+        // Cache is already up-to-date (arr is _cachedAccounts); keep dirty=false.
     }
 
     /** Remove an account by playerId. Does NOT touch pvp_manager_prefs scoped keys — caller handles that. */
-    public void removeAccount(String playerId) {
+    public synchronized void removeAccount(String playerId) {
         if (playerId == null) return;
         JSONArray arr = getAccounts();
         JSONArray updated = new JSONArray();
@@ -77,6 +87,8 @@ public class AccountStore {
             } catch (JSONException ignored) {}
         }
         prefs.edit().putString(KEY_ACCOUNTS, updated.toString()).apply();
+        _cachedAccounts = updated;
+        _accountsDirty  = false;
     }
 
     // ── Active account ────────────────────────────────────────────────────────
@@ -112,7 +124,7 @@ public class AccountStore {
 
     // ── Misc ─────────────────────────────────────────────────────────────────
 
-    public int getAccountCount() { return getAccounts().length(); }
+    public synchronized int getAccountCount() { return getAccounts().length(); }
 
-    public boolean hasAccounts() { return getAccounts().length() > 0; }
+    public synchronized boolean hasAccounts() { return getAccounts().length() > 0; }
 }
