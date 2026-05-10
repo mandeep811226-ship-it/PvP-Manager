@@ -64,6 +64,14 @@ public class MainActivity extends AppCompatActivity {
     private ImageView chipAvatarImageView = null;
     private TextView  chipAvatarFallback  = null;
 
+    // ── PATCH 6: bounded thread pool + bitmap cache for avatar loading ─────────
+    /** Shared pool caps concurrent image downloads; avoids unbounded thread spawns. */
+    private final java.util.concurrent.ExecutorService _avatarExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(3);
+    /** Keyed by avatar URL; avoids re-downloading the same image. */
+    private final java.util.HashMap<String, android.graphics.Bitmap> _avatarCache =
+            new java.util.HashMap<>();
+
     // ── Account chip & flyout (native overlay) ────────────────────────────────
     private FrameLayout accountChipContainer;
     private FrameLayout accountFlyoutOverlay;
@@ -1444,12 +1452,26 @@ public class MainActivity extends AppCompatActivity {
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
     /**
-     * Async avatar loader (BUG 5): fetches image on background thread, applies to ImageView on UI thread.
-     * Shows the ImageView and hides the fallback letter on success; silently falls back on error.
+     * PATCH 6 — load avatar image on a bounded background thread pool instead of
+     * spawning an unbounded new Thread() per call. Results are cached by URL so
+     * repeated calls for the same avatar skip the network entirely.
+     * Falls back silently to the letter placeholder on any error.
      */
     private void loadAvatarAsync(ImageView iv, String avatarUrl) {
         if (iv == null || avatarUrl == null || avatarUrl.isEmpty()) return;
-        new Thread(() -> {
+
+        // Cache hit — apply immediately on UI thread, no network needed.
+        synchronized (_avatarCache) {
+            android.graphics.Bitmap cached = _avatarCache.get(avatarUrl);
+            if (cached != null) {
+                iv.setImageBitmap(cached);
+                iv.setVisibility(View.VISIBLE);
+                _hideSiblingFallback(iv);
+                return;
+            }
+        }
+
+        _avatarExecutor.execute(() -> {
             try {
                 java.net.URL url = new java.net.URL(avatarUrl);
                 java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
@@ -1466,20 +1488,12 @@ public class MainActivity extends AppCompatActivity {
                         int min = Math.min(bm.getWidth(), bm.getHeight());
                         android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
                             bm, (bm.getWidth()-min)/2, (bm.getHeight()-min)/2, min, min);
+                        synchronized (_avatarCache) { _avatarCache.put(avatarUrl, cropped); }
                         final android.graphics.Bitmap finalBm = cropped;
                         runOnUiThread(() -> {
                             iv.setImageBitmap(finalBm);
                             iv.setVisibility(View.VISIBLE);
-                            // Hide sibling fallback TextView if present
-                            android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
-                            if (parent != null) {
-                                for (int i = 0; i < parent.getChildCount(); i++) {
-                                    android.view.View child = parent.getChildAt(i);
-                                    if (child instanceof TextView && child != iv) {
-                                        child.setVisibility(View.GONE);
-                                    }
-                                }
-                            }
+                            _hideSiblingFallback(iv);
                         });
                     }
                 }
@@ -1487,7 +1501,20 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {
                 // Silently fall back to letter placeholder — no crash
             }
-        }).start();
+        });
+    }
+
+    /** Hide sibling fallback TextView (letter placeholder) when avatar bitmap is applied. */
+    private void _hideSiblingFallback(ImageView iv) {
+        android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
+        if (parent != null) {
+            for (int i = 0; i < parent.getChildCount(); i++) {
+                android.view.View child = parent.getChildAt(i);
+                if (child instanceof TextView && child != iv) {
+                    child.setVisibility(View.GONE);
+                }
+            }
+        }
     }
 
     private TextView pillButton(String text, int bgColor) {
