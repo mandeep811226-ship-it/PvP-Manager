@@ -142,8 +142,15 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
+
+                // Advance overlay status now that the page DOM is available.
+                if (bridge != null && bridge.isAccountSwitchInProgress()) {
+                    bridge.updateSwitchStage("authenticating");
+                }
+
                 injectUserScript(view);
                 syncBlsToGameWebView();
+
                 // Inject the known active player ID into the page so pvp_manager.js resolves
                 // identity immediately without waiting for DOM link scanning (BUG2 FIX).
                 // Uses a short delay to ensure the injected script has already executed.
@@ -153,6 +160,11 @@ public class MainActivity extends AppCompatActivity {
                     if (!safeId.isEmpty()) {
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
                             if (view != null) {
+                                // Advance stage — pvp_manager.js watcher is about to pick
+                                // up the new identity and call _reloadScopedState().
+                                if (bridge != null && bridge.isAccountSwitchInProgress()) {
+                                    bridge.updateSwitchStage("restoring");
+                                }
                                 view.evaluateJavascript(
                                     "window.__pvpmActivePlayerId='" + safeId + "';", null);
                             }
@@ -322,6 +334,12 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        // Block re-entrant switches while one is already in progress.
+        if (bridge.isAccountSwitchInProgress()) {
+            bridge.appendLog("warning", "Account switch blocked — previous switch still in progress");
+            return;
+        }
+
         closeAccountFlyout();
 
         String currentId = accountStore.getActiveAccountId();
@@ -339,6 +357,14 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        // Resolve display name early — used for the overlay subtitle.
+        JSONObject preCheck = accountStore.getAccount(playerId);
+        String displayName = (preCheck != null)
+                ? preCheck.optString("playerName", "") : "";
+
+        // ── Begin switch: show overlay, acquire lock, start timeout ───────────
+        bridge.beginAccountSwitch(displayName);
+
         // If switching to "not logged in" / unknown
         if (playerId == null || playerId.isEmpty()) {
             CookieHelper.clearAll();
@@ -348,12 +374,16 @@ public class MainActivity extends AppCompatActivity {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (gameWebView != null) gameWebView.loadUrl(PVP_URL);
             }, 200);
+            // No pvp_manager.js will run for a logged-out state, so dismiss overlay after load.
+            new Handler(Looper.getMainLooper()).postDelayed(() -> bridge.onAccountSwitchReady(), 4000);
             return;
         }
 
         JSONObject targetAccount = accountStore.getAccount(playerId);
         if (targetAccount == null) {
             bridge.appendLog("warning", "switchToAccount: account not found — " + playerId);
+            // Release the lock immediately — nothing will proceed.
+            bridge.onAccountSwitchReady();
             return;
         }
 
@@ -372,6 +402,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // 4. Inject target account cookies
+        bridge.updateSwitchStage("cookies");
         String targetCookies = targetAccount.optString("cookies", "");
         if (!targetCookies.isEmpty()) {
             injectCookiesForAccount(targetCookies);
@@ -388,13 +419,15 @@ public class MainActivity extends AppCompatActivity {
         bridge.appendLog("system", "Switched to account: " + targetAccount.optString("playerName") + " (" + playerId + ")");
 
         // 7. Reload gameWebView — longer delay so WebStorage + cookies are ready (FIX4)
+        bridge.updateSwitchStage("loading");
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (gameWebView != null) {
                 gameWebView.loadUrl(PVP_URL);
             }
         }, 800);
 
-        // 8. Notify UI to reflect new account state
+        // 8. Notify UI to reflect new account state (overlay is still up; this keeps
+        //    underlying state consistent while the overlay covers it).
         new Handler(Looper.getMainLooper()).postDelayed(() -> bridge.notifyUiStateChanged(), 400);
     }
 
