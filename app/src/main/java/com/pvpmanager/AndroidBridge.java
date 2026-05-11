@@ -51,27 +51,6 @@ public class AndroidBridge {
     /** True while the user is adding a new account — forces getState() to report disconnected. */
     private volatile     boolean addAccountModeActive = false;
 
-    // ── getState() result cache (PATCH 1) ─────────────────────────────────────
-    /** Last serialized state string; returned immediately when state hasn't changed. */
-    private volatile String  _cachedStateString = null;
-    /** Set to true whenever any state mutation occurs; cleared after caching. */
-    private volatile boolean _stateDirty        = true;
-
-    // ── Account-switch synchronization lock ───────────────────────────────────
-    /**
-     * True from the moment switchToAccount() begins until pvp_manager.js
-     * confirms all scoped state has been fully reloaded (or the 18-second
-     * timeout fires).  While true:
-     *   • getState() includes "switchInProgress":true so the UI can gate controls
-     *   • setRunning(true) is blocked to prevent bot starting on stale state
-     *   • A full-screen overlay is shown in uiWebView blocking all interaction
-     */
-    private volatile boolean _switchInProgress = false;
-    /** Human-readable stage tag used for overlay status text progression. */
-    private volatile String  _switchStage      = "idle";
-    /** Tracks the pending timeout runnable so it can be cancelled on success. */
-    private          Runnable _switchTimeoutRunnable = null;
-
     private final Runnable blsSyncRunnable = new Runnable() {
         @Override public void run() {
             performBlsSync();
@@ -159,217 +138,8 @@ public class AndroidBridge {
         mainHandler.removeCallbacks(blsSyncRunnable);
     }
 
-    // ── Account-switch synchronization API ───────────────────────────────────
-
-    /**
-     * Called by MainActivity at the very start of an account switch.
-     * Injects the full-screen loading overlay into uiWebView, registers an
-     * 18-second safety timeout, and marks the switch lock so that all
-     * mutation methods (setRunning, etc.) reject requests until complete.
-     *
-     * @param targetName Display name shown below the spinner — safe to be empty.
-     */
-    public void beginAccountSwitch(String targetName) {
-        _switchInProgress = true;
-        _switchStage      = "switching";
-        _stateDirty       = true;
-
-        // Inject the overlay into the visible uiWebView immediately.
-        final String safeName = (targetName != null ? targetName : "")
-                .replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ");
-        mainHandler.post(() -> {
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript(_buildSwitchOverlayJs(safeName), null);
-            }
-        });
-
-        // Safety timeout: dismiss overlay and release lock after 18 seconds
-        // if pvp_manager.js never fires onAccountSwitchReady().
-        _cancelSwitchTimeout();
-        _switchTimeoutRunnable = () -> {
-            if (!_switchInProgress) return;
-            Log.w("PvPManager", "Account-switch timeout — forcing overlay dismissal");
-            _switchInProgress = false;
-            _switchStage      = "idle";
-            _stateDirty       = true;
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript(
-                    "window.__pvpmDismissSwitchOverlay&&" +
-                    "window.__pvpmDismissSwitchOverlay(true,'Runtime synchronization timed out. Please retry.');", null);
-            }
-            notifyUiStateChanged();
-        };
-        mainHandler.postDelayed(_switchTimeoutRunnable, 18_000);
-    }
-
-    /** Cancels any pending switch-timeout runnable. */
-    private void _cancelSwitchTimeout() {
-        if (_switchTimeoutRunnable != null) {
-            mainHandler.removeCallbacks(_switchTimeoutRunnable);
-            _switchTimeoutRunnable = null;
-        }
-    }
-
-    /**
-     * Called from pvp_manager.js (via @JavascriptInterface) once
-     * _reloadScopedState() has finished loading all scoped state for the new
-     * account.  This is the REAL readiness signal — not a timer.
-     * Cancels the timeout, releases the lock, and fades out the overlay.
-     */
-    @JavascriptInterface
-    public void onAccountSwitchReady() {
-        if (!_switchInProgress) return;
-        _cancelSwitchTimeout();
-        _switchInProgress = false;
-        _switchStage      = "idle";
-        _stateDirty       = true;
-        mainHandler.post(() -> {
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript(
-                    "window.__pvpmDismissSwitchOverlay&&window.__pvpmDismissSwitchOverlay(false);", null);
-            }
-        });
-        // Small delay lets the overlay fade before refreshing the full UI.
-        mainHandler.postDelayed(this::notifyUiStateChanged, 320);
-    }
-
-    /**
-     * Called from pvp_manager.js to push real progress stage names.
-     * Translates internal tags to user-friendly overlay text.
-     * Also callable from Java via {@link #updateSwitchStage(String)}.
-     */
-    @JavascriptInterface
-    public void notifySwitchStage(String stage) {
-        if (!_switchInProgress) return;
-        _switchStage = stage;
-        final String msg = _stageToMessage(stage);
-        mainHandler.post(() -> {
-            if (uiWebView != null) {
-                uiWebView.evaluateJavascript(
-                    "window.__pvpmUpdateSwitchStage&&window.__pvpmUpdateSwitchStage('"
-                    + msg.replace("'", "\\'") + "');", null);
-            }
-        });
-    }
-
-    /**
-     * Java-callable wrapper around {@link #notifySwitchStage(String)}.
-     * Used by MainActivity to advance the overlay text at native checkpoints
-     * (cookie injection done, gameWebView reload started, etc.).
-     */
-    public void updateSwitchStage(String stage) {
-        notifySwitchStage(stage);
-    }
-
-    /** Returns true while an account switch is in progress. Exposed to JS for extra safety. */
-    @JavascriptInterface
-    public boolean isAccountSwitchInProgress() {
-        return _switchInProgress;
-    }
-
-    /** Maps internal stage tags to readable overlay status messages. */
-    private static String _stageToMessage(String stage) {
-        if (stage == null) return "Please wait\u2026";
-        switch (stage) {
-            case "switching":      return "Switching Account\u2026";
-            case "cookies":        return "Injecting Session\u2026";
-            case "loading":        return "Loading Runtime\u2026";
-            case "authenticating": return "Authenticating\u2026";
-            case "restoring":      return "Restoring History\u2026";
-            case "syncing":        return "Synchronizing Stats\u2026";
-            case "finalizing":     return "Finalizing\u2026";
-            default:               return "Please wait\u2026";
-        }
-    }
-
-    /**
-     * Builds the self-contained JavaScript that injects a professional loading
-     * overlay into uiWebView.  The overlay:
-     *   • blocks all pointer/touch events beneath it
-     *   • shows an animated spinner + progressive status text
-     *   • exposes window.__pvpmDismissSwitchOverlay(isError, msg)
-     *   • exposes window.__pvpmUpdateSwitchStage(msg) for live text updates
-     *
-     * The returned string is passed directly to evaluateJavascript — all
-     * inner quotes and backslashes are escaped appropriately.
-     */
-    private static String _buildSwitchOverlayJs(String accountName) {
-        // Build as a single JS IIFE. We use single-quote delimiters throughout
-        // the inner HTML strings to avoid escaping collisions with Java's
-        // double-quote string literals.
-        return "(function(){"
-            + "var id='__pvpmSwitchOverlay';"
-            + "var ex=document.getElementById(id);if(ex)ex.parentNode.removeChild(ex);"
-            + "var o=document.createElement('div');o.id=id;"
-            + "o.style.cssText='position:fixed;inset:0;z-index:2147483647;"
-                + "background:rgba(8,12,20,0.90);"
-                + "display:flex;align-items:center;justify-content:center;"
-                + "pointer-events:all;touch-action:none;"
-                + "opacity:0;transition:opacity 0.18s ease;';"
-            // Inner card
-            + "o.innerHTML="
-                + "'<div style=\""
-                    + "display:flex;flex-direction:column;align-items:center;gap:22px;"
-                    + "padding:32px 28px;border-radius:14px;"
-                    + "background:rgba(22,27,38,0.96);"
-                    + "border:1px solid rgba(255,255,255,0.07);"
-                    + "box-shadow:0 8px 40px rgba(0,0,0,0.6);"
-                    + "min-width:200px;max-width:80vw;text-align:center;"
-                + "\">"
-                // Spinner ring
-                + "<div id=\\'__pvpmSpinner\\' style=\\'width:38px;height:38px;"
-                    + "border:3px solid rgba(255,255,255,0.10);"
-                    + "border-top-color:#42a5f5;"
-                    + "border-radius:50%;\\'></div>"
-                // Status text
-                + "<div style=\\'display:flex;flex-direction:column;align-items:center;gap:7px;\\'>"
-                    + "<div id=\\'__pvpmSwitchMsg\\' style=\\'color:#e0e0e0;"
-                        + "font-size:14px;font-family:-apple-system,BlinkMacSystemFont,"
-                        + "sans-serif;font-weight:500;letter-spacing:0.01em;\\'>"
-                        + "Switching Account\\u2026</div>"
-                    + (accountName.isEmpty() ? "" :
-                        "<div style=\\'color:#546e7a;font-size:11px;"
-                        + "font-family:-apple-system,BlinkMacSystemFont,sans-serif;\\'>"
-                        + accountName + "</div>")
-                + "</div>"
-                + "</div>';"
-            // Spinner CSS animation
-            + "var s=document.createElement('style');"
-            + "s.textContent='@keyframes __pvpmSpin{to{transform:rotate(360deg)}}"
-                + "#__pvpmSpinner{animation:__pvpmSpin 0.72s linear infinite}';"
-            + "o.appendChild(s);"
-            + "document.body.appendChild(o);"
-            // Fade in on next frame
-            + "requestAnimationFrame(function(){o.style.opacity='1';});"
-            // Dismiss function — called by AndroidBridge when switch completes
-            + "window.__pvpmDismissSwitchOverlay=function(isErr,msg){"
-                + "var o=document.getElementById('__pvpmSwitchOverlay');if(!o)return;"
-                + "if(isErr){"
-                    + "var m=document.getElementById('__pvpmSwitchMsg');"
-                    + "if(m){m.style.color='#ef5350';"
-                        + "m.textContent=msg||'Switch failed. Please retry.';}"
-                    + "var sp=document.getElementById('__pvpmSpinner');"
-                    + "if(sp)sp.style.animation='none';"
-                    + "setTimeout(function(){"
-                        + "o.style.opacity='0';"
-                        + "setTimeout(function(){if(o.parentNode)o.parentNode.removeChild(o);},220);"
-                    + "},2600);"
-                + "}else{"
-                    + "o.style.opacity='0';"
-                    + "setTimeout(function(){if(o.parentNode)o.parentNode.removeChild(o);},220);"
-                + "}"
-            + "};"
-            // Stage-update function — called by AndroidBridge at each checkpoint
-            + "window.__pvpmUpdateSwitchStage=function(msg){"
-                + "var e=document.getElementById('__pvpmSwitchMsg');"
-                + "if(e)e.textContent=msg;"
-            + "};"
-            + "})();";
-    }
-
     /** Called by MainActivity to isolate the UI during add-account flow. */
     public void setAddAccountMode(boolean active) {
-        _stateDirty = true;
         addAccountModeActive = active;
         notifyUiStateChanged();
     }
@@ -406,7 +176,6 @@ public class AndroidBridge {
 
     // ── Session ───────────────────────────────────────────────────────────────
     public void setConnected(boolean connected) {
-        _stateDirty = true;
         SharedPreferences.Editor ed = prefs.edit();
         if (connected) ed.putBoolean(KEY_SESSION_VERIFIED, true);
         else           ed.remove(KEY_SESSION_VERIFIED);
@@ -568,9 +337,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public String getState() {
-        // PATCH 1 — return cached string immediately when nothing has changed
-        if (!_stateDirty && _cachedStateString != null) return _cachedStateString;
-
         try {
             JSONObject state = new JSONObject();
 
@@ -654,28 +420,13 @@ public class AndroidBridge {
                 for (String line : logLines) sb.append(line).append("\n");
             }
 
-            // PATCH 3 — parse KEY_CACHED_LIVE once; reuse for both gameLogs and match/stats/etc.
             String gameLogs = "";
-            boolean liveLoaded = false;
-            String cachedLive = getStringScoped(KEY_CACHED_LIVE, null);
-            if (cachedLive != null) {
+            String cachedForLogs = getStringScoped(KEY_CACHED_LIVE, null);
+            if (cachedForLogs != null) {
                 try {
-                    JSONObject live = new JSONObject(cachedLive);
-                    // gameLogs section (was a second getStringScoped + parse before)
-                    gameLogs = live.optString("gameLogs", "");
-                    // match / stats / skill sections
-                    state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
-                    state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
-                    state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
-                    state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
-                    if (live.optJSONObject("battleStats") != null) {
-                        state.put("battleStats", live.getJSONObject("battleStats"));
-                    }
-                    liveLoaded = true;
-                } catch (JSONException ignored) {
-                    appendLog("warning", "cached_live_state malformed — clearing");
-                    removeScoped(KEY_CACHED_LIVE);
-                }
+                    JSONObject liveForLogs = new JSONObject(cachedForLogs);
+                    gameLogs = liveForLogs.optString("gameLogs", "");
+                } catch (JSONException ignored) {}
             }
 
             String systemLogs = sb.toString();
@@ -689,6 +440,24 @@ public class AndroidBridge {
             }
             state.put("logs", combinedLogs);
 
+            boolean liveLoaded = false;
+            String cachedLive = getStringScoped(KEY_CACHED_LIVE, null);
+            if (cachedLive != null) {
+                try {
+                    JSONObject live = new JSONObject(cachedLive);
+                    state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
+                    state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
+                    state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
+                    state.put("matchHistory", live.optJSONArray("matchHistory") != null ? live.getJSONArray("matchHistory") : new JSONArray());
+                    if (live.optJSONObject("battleStats") != null) {
+                        state.put("battleStats", live.getJSONObject("battleStats"));
+                    }
+                    liveLoaded = true;
+                } catch (JSONException ignored) {
+                    appendLog("warning", "cached_live_state malformed — clearing");
+                    removeScoped(KEY_CACHED_LIVE);
+                }
+            }
             if (!liveLoaded) {
                 state.put("match",        new JSONObject("{\"active\":false}"));
                 state.put("stats",        new JSONObject());
@@ -697,13 +466,7 @@ public class AndroidBridge {
                 state.put("battleStats",  new JSONObject());
             }
 
-            // Expose switch-lock so uiWebView can gate controls independently.
-            state.put("switchInProgress", _switchInProgress);
-
-            // PATCH 1 — cache the result; clear dirty flag
-            _cachedStateString = state.toString();
-            _stateDirty        = false;
-            return _cachedStateString;
+            return state.toString();
 
         } catch (JSONException e) {
             Log.e("PvPManager", "getState error: " + e.getMessage());
@@ -737,14 +500,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setRunning(boolean running) {
-        _stateDirty = true;
-        // Reject start requests while a switch is in progress — the runtime
-        // state is in an intermediate form and starting now would corrupt it.
-        if (running && _switchInProgress) {
-            appendLog("warning", "setRunning(true) blocked — account switch in progress");
-            notifyUiStateChanged();
-            return;
-        }
         if (running && !isSessionVerified()) {
             appendLog("system", "Cannot start — not connected");
             notifyUiStateChanged();
@@ -758,7 +513,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setStrategyEnabled(boolean enabled) {
-        _stateDirty = true;
         try {
             String raw = getStringScoped(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
             JSONObject obj = new JSONObject(raw);
@@ -773,7 +527,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void saveStrategy(String jsonString) {
-        _stateDirty = true;
         try {
             JSONArray entries = new JSONArray(jsonString);
             String raw = getStringScoped(KEY_STRATEGY, "{\"enabled\":false,\"entries\":[]}");
@@ -789,7 +542,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setConfigBool(String key, boolean value) {
-        _stateDirty = true;
         if ("debug_logs".equals(key)) {
             prefs.edit().putBoolean(KEY_DEBUG_LOGS, value).apply();
             evaluateInGameWebView("localStorage.setItem('et_pvp_debug_logs','" + value + "');");
@@ -798,7 +550,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void setConfigValue(String key, String value) {
-        _stateDirty = true;
         if ("poll_interval_ms".equals(key)) {
             prefs.edit().putString(KEY_POLL_INTERVAL, value).apply();
         } else if ("clear_history".equals(key)) {
@@ -1037,7 +788,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void clearLogs() {
-        _stateDirty = true;
         // 1. Clear Android-side log buffer
         synchronized (logLines) { logLines.clear(); }
 
@@ -1066,7 +816,6 @@ public class AndroidBridge {
 
     @JavascriptInterface
     public void resetSession() {
-        _stateDirty = true;
         // 1. Zero the live counters inside gameWebView (runtime + scoped localStorage)
         mainHandler.post(() -> {
             if (gameWebView != null) {
@@ -1178,7 +927,6 @@ public class AndroidBridge {
     }
 
     public void appendLog(String type, String message) {
-        _stateDirty = true;
         String line = System.currentTimeMillis() + "|" + type + "|" + message;
         synchronized (logLines) {
             logLines.addLast(line);
@@ -1188,7 +936,6 @@ public class AndroidBridge {
     }
 
     public void notifyUiStateChanged() {
-        _stateDirty = true;
         mainHandler.post(() -> {
             if (uiWebView != null) {
                 uiWebView.evaluateJavascript("if(window.__pvpmUiRefresh) window.__pvpmUiRefresh();", null);
@@ -1206,7 +953,6 @@ public class AndroidBridge {
      */
     @JavascriptInterface
     public void onBotSelfStopped() {
-        _stateDirty = true;
         putBoolScoped(KEY_RUNNING, false);
         appendLog("system", "Bot self-stopped — native running flag cleared");
         notifyUiStateChanged();
