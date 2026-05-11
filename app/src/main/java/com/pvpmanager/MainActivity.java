@@ -64,14 +64,6 @@ public class MainActivity extends AppCompatActivity {
     private ImageView chipAvatarImageView = null;
     private TextView  chipAvatarFallback  = null;
 
-    // ── PATCH 6: bounded thread pool + bitmap cache for avatar loading ─────────
-    /** Shared pool caps concurrent image downloads; avoids unbounded thread spawns. */
-    private final java.util.concurrent.ExecutorService _avatarExecutor =
-            java.util.concurrent.Executors.newFixedThreadPool(3);
-    /** Keyed by avatar URL; avoids re-downloading the same image. */
-    private final java.util.HashMap<String, android.graphics.Bitmap> _avatarCache =
-            new java.util.HashMap<>();
-
     // ── Account chip & flyout (native overlay) ────────────────────────────────
     private FrameLayout accountChipContainer;
     private FrameLayout accountFlyoutOverlay;
@@ -142,15 +134,8 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
-
-                // Advance overlay status now that the page DOM is available.
-                if (bridge != null && bridge.isAccountSwitchInProgress()) {
-                    bridge.updateSwitchStage("authenticating");
-                }
-
                 injectUserScript(view);
                 syncBlsToGameWebView();
-
                 // Inject the known active player ID into the page so pvp_manager.js resolves
                 // identity immediately without waiting for DOM link scanning (BUG2 FIX).
                 // Uses a short delay to ensure the injected script has already executed.
@@ -160,11 +145,6 @@ public class MainActivity extends AppCompatActivity {
                     if (!safeId.isEmpty()) {
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
                             if (view != null) {
-                                // Advance stage — pvp_manager.js watcher is about to pick
-                                // up the new identity and call _reloadScopedState().
-                                if (bridge != null && bridge.isAccountSwitchInProgress()) {
-                                    bridge.updateSwitchStage("restoring");
-                                }
                                 view.evaluateJavascript(
                                     "window.__pvpmActivePlayerId='" + safeId + "';", null);
                             }
@@ -334,12 +314,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // Block re-entrant switches while one is already in progress.
-        if (bridge.isAccountSwitchInProgress()) {
-            bridge.appendLog("warning", "Account switch blocked — previous switch still in progress");
-            return;
-        }
-
         closeAccountFlyout();
 
         String currentId = accountStore.getActiveAccountId();
@@ -357,14 +331,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // Resolve display name early — used for the overlay subtitle.
-        JSONObject preCheck = accountStore.getAccount(playerId);
-        String displayName = (preCheck != null)
-                ? preCheck.optString("playerName", "") : "";
-
-        // ── Begin switch: show overlay, acquire lock, start timeout ───────────
-        bridge.beginAccountSwitch(displayName);
-
         // If switching to "not logged in" / unknown
         if (playerId == null || playerId.isEmpty()) {
             CookieHelper.clearAll();
@@ -374,16 +340,12 @@ public class MainActivity extends AppCompatActivity {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (gameWebView != null) gameWebView.loadUrl(PVP_URL);
             }, 200);
-            // No pvp_manager.js will run for a logged-out state, so dismiss overlay after load.
-            new Handler(Looper.getMainLooper()).postDelayed(() -> bridge.onAccountSwitchReady(), 4000);
             return;
         }
 
         JSONObject targetAccount = accountStore.getAccount(playerId);
         if (targetAccount == null) {
             bridge.appendLog("warning", "switchToAccount: account not found — " + playerId);
-            // Release the lock immediately — nothing will proceed.
-            bridge.onAccountSwitchReady();
             return;
         }
 
@@ -402,7 +364,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // 4. Inject target account cookies
-        bridge.updateSwitchStage("cookies");
         String targetCookies = targetAccount.optString("cookies", "");
         if (!targetCookies.isEmpty()) {
             injectCookiesForAccount(targetCookies);
@@ -419,15 +380,13 @@ public class MainActivity extends AppCompatActivity {
         bridge.appendLog("system", "Switched to account: " + targetAccount.optString("playerName") + " (" + playerId + ")");
 
         // 7. Reload gameWebView — longer delay so WebStorage + cookies are ready (FIX4)
-        bridge.updateSwitchStage("loading");
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (gameWebView != null) {
                 gameWebView.loadUrl(PVP_URL);
             }
         }, 800);
 
-        // 8. Notify UI to reflect new account state (overlay is still up; this keeps
-        //    underlying state consistent while the overlay covers it).
+        // 8. Notify UI to reflect new account state
         new Handler(Looper.getMainLooper()).postDelayed(() -> bridge.notifyUiStateChanged(), 400);
     }
 
@@ -1485,26 +1444,12 @@ public class MainActivity extends AppCompatActivity {
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
     /**
-     * PATCH 6 — load avatar image on a bounded background thread pool instead of
-     * spawning an unbounded new Thread() per call. Results are cached by URL so
-     * repeated calls for the same avatar skip the network entirely.
-     * Falls back silently to the letter placeholder on any error.
+     * Async avatar loader (BUG 5): fetches image on background thread, applies to ImageView on UI thread.
+     * Shows the ImageView and hides the fallback letter on success; silently falls back on error.
      */
     private void loadAvatarAsync(ImageView iv, String avatarUrl) {
         if (iv == null || avatarUrl == null || avatarUrl.isEmpty()) return;
-
-        // Cache hit — apply immediately on UI thread, no network needed.
-        synchronized (_avatarCache) {
-            android.graphics.Bitmap cached = _avatarCache.get(avatarUrl);
-            if (cached != null) {
-                iv.setImageBitmap(cached);
-                iv.setVisibility(View.VISIBLE);
-                _hideSiblingFallback(iv);
-                return;
-            }
-        }
-
-        _avatarExecutor.execute(() -> {
+        new Thread(() -> {
             try {
                 java.net.URL url = new java.net.URL(avatarUrl);
                 java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
@@ -1521,12 +1466,20 @@ public class MainActivity extends AppCompatActivity {
                         int min = Math.min(bm.getWidth(), bm.getHeight());
                         android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
                             bm, (bm.getWidth()-min)/2, (bm.getHeight()-min)/2, min, min);
-                        synchronized (_avatarCache) { _avatarCache.put(avatarUrl, cropped); }
                         final android.graphics.Bitmap finalBm = cropped;
                         runOnUiThread(() -> {
                             iv.setImageBitmap(finalBm);
                             iv.setVisibility(View.VISIBLE);
-                            _hideSiblingFallback(iv);
+                            // Hide sibling fallback TextView if present
+                            android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
+                            if (parent != null) {
+                                for (int i = 0; i < parent.getChildCount(); i++) {
+                                    android.view.View child = parent.getChildAt(i);
+                                    if (child instanceof TextView && child != iv) {
+                                        child.setVisibility(View.GONE);
+                                    }
+                                }
+                            }
                         });
                     }
                 }
@@ -1534,20 +1487,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {
                 // Silently fall back to letter placeholder — no crash
             }
-        });
-    }
-
-    /** Hide sibling fallback TextView (letter placeholder) when avatar bitmap is applied. */
-    private void _hideSiblingFallback(ImageView iv) {
-        android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
-        if (parent != null) {
-            for (int i = 0; i < parent.getChildCount(); i++) {
-                android.view.View child = parent.getChildAt(i);
-                if (child instanceof TextView && child != iv) {
-                    child.setVisibility(View.GONE);
-                }
-            }
-        }
+        }).start();
     }
 
     private TextView pillButton(String text, int bgColor) {
