@@ -604,13 +604,6 @@
     // plain = plain-text for clipboard, html = rich HTML for display, color = CSS color
     let logHistory = [];
 
-    // ── PATCH 4: shared bls_memory parse cache ────────────────────────────────
-    // writeBlsFromLogs() reads and parses bls_memory into this variable.
-    // readBlsScores() uses this cache to avoid a second localStorage parse on
-    // the same poll tick. Nulled at the top of writeBlsFromLogs so it is never
-    // stale across separate poll cycles.
-    let _blsMemCache = null;
-
     /* =========================================================
         PATCH 2 — GLOBAL CRASH RECOVERY
         Catches unhandled async rejections and synchronous window errors.
@@ -2229,18 +2222,12 @@
     function readBlsScores(allyUid, enemyUid) {
         const out = { myAtk: null, myDef: null, theirAtk: null, theirDef: null };
         let mem;
-        // PATCH 4 — reuse the parsed object from writeBlsFromLogs if available
-        // so we skip a redundant localStorage.getItem + JSON.parse this tick.
-        if (_blsMemCache !== null) {
-            mem = _blsMemCache;
-        } else {
-            try {
-                const raw = localStorage.getItem('bls_memory');
-                if (!raw) return out;
-                mem = JSON.parse(raw);
-                if (!mem || typeof mem !== 'object') return out;
-            } catch (e) { return out; }
-        }
+        try {
+            const raw = localStorage.getItem('bls_memory');
+            if (!raw) return out;
+            mem = JSON.parse(raw);
+            if (!mem || typeof mem !== 'object') return out;
+        } catch (e) { return out; }
 
         const mine   = allyUid  != null ? mem[String(allyUid)]  : null;
         const theirs = enemyUid != null ? mem[String(enemyUid)] : null;
@@ -2291,17 +2278,12 @@
      */
     function writeBlsFromLogs(newLogs, matchId) {
         if (!Array.isArray(newLogs) || !newLogs.length) return;
-        // PATCH 4 — reset cache before reading so stale data from a prior
-        // tick is never reused (writeBlsFromLogs is always called first).
-        _blsMemCache = null;
         let mem;
         try {
             const raw = localStorage.getItem('bls_memory');
             mem = raw ? JSON.parse(raw) : {};
             if (!mem || typeof mem !== 'object') mem = {};
         } catch (e) { mem = {}; }
-        // Populate cache immediately so readBlsScores() can reuse this object.
-        _blsMemCache = mem;
 
         const matchIdNum = Number(matchId) || null;
         const myUid  = allyUid  ? String(allyUid)  : null;
@@ -2406,7 +2388,6 @@
 
         if (changed) {
             try { localStorage.setItem('bls_memory', JSON.stringify(mem)); } catch (e) {}
-            // Cache is already mem (the same object reference); no reassignment needed.
         }
     }
 
@@ -3082,28 +3063,7 @@
                     if (!strategyData.entries[i]) return;
                     strategyData.entries[i].skillId = String(e.target.value);
                     saveStrategy();
-                    // PATCH 5 — update only the skill icon in this row instead of
-                    // rebuilding the entire GUI. The icon is the element immediately
-                    // before the select (second child of the first flex row in the entry).
-                    const entryEl = gui.querySelector(`.pvpm-strategy-entry[data-idx="${i}"]`);
-                    if (entryEl) {
-                        const firstRow = entryEl.querySelector('div');
-                        const iconEl   = firstRow && firstRow.children[1]; // index 0 = "#N" label, 1 = icon
-                        if (iconEl) {
-                            try {
-                                const imgMap    = loadSkillImageMap();
-                                const imgUrl    = imgMap[String(e.target.value)] || null;
-                                const iconBoxCss = 'width:28px; height:28px; flex:none; border-radius:6px; border:1px solid #333; background:#1a1a1a; box-sizing:border-box; overflow:hidden;';
-                                if (imgUrl) {
-                                    iconEl.outerHTML = `<img src="${escapeHtml(imgUrl)}" alt="" data-skill-icon style="${iconBoxCss} object-fit:cover;">`;
-                                } else {
-                                    iconEl.outerHTML = `<div style="${iconBoxCss}" data-skill-icon title="Skill icon will appear after your first match"></div>`;
-                                }
-                            } catch (_) { renderGUI(); } // safe fallback
-                        }
-                    } else {
-                        renderGUI(); // entry not found in DOM — full rebuild
-                    }
+                    renderGUI();  // refresh the row so the skill icon updates
                 };
             });
             gui.querySelectorAll('.pvpm-strat-cond-type').forEach(el => {
@@ -4281,24 +4241,6 @@
             : 'Account switched — state reloaded for player ' + _activePlayerId + '.';
         addLog(msg, { color: '#81d4fa' });
         renderGUI();
-
-        // ── Signal Android that ALL scoped state is now reloaded ──────────────
-        // This is the REAL readiness signal.  AndroidBridge.onAccountSwitchReady()
-        // cancels the 18-second timeout, releases the switch lock, and fades out
-        // the loading overlay in uiWebView.  Only fires for actual account switches
-        // (not the initial identity-resolved path at first load) so we don't
-        // prematurely dismiss an overlay that was never shown.
-        if (reason === 'account-switched') {
-            try {
-                if (window.Android && typeof Android.onAccountSwitchReady === 'function') {
-                    // Small yield after renderGUI so the DOM has settled before
-                    // the overlay fades — avoids seeing a half-painted UI flash.
-                    setTimeout(function() {
-                        try { Android.onAccountSwitchReady(); } catch (_) {}
-                    }, 80);
-                }
-            } catch (_) {}
-        }
     }
 
     setInterval(function _accountSwitchWatcher() {
@@ -4309,17 +4251,6 @@
                 const wasNull = (_activePlayerId === null || _activePlayerId === undefined);
                 _activePlayerId = wid;
                 _identityWasNullAtInit = false;
-
-                if (!wasNull) {
-                    // Real account switch detected: tell Android we are now actively
-                    // reloading scoped state so the overlay text advances.
-                    try {
-                        if (window.Android && typeof Android.notifySwitchStage === 'function') {
-                            Android.notifySwitchStage('syncing');
-                        }
-                    } catch (_) {}
-                }
-
                 _reloadScopedState(wasNull ? 'identity-resolved' : 'account-switched');
                 return;
             }
