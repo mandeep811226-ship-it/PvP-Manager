@@ -388,7 +388,7 @@
         <div class="settings-section-label">Bot</div>
         <div class="setting-row">
           <div><div class="setting-title">Poll Interval (ms)</div><div class="setting-sub">How often to check battle state</div></div>
-          <input type="number" id="poll-interval-input" value="5000" min="500" max="10000"
+          <input type="number" id="poll-interval-input" value="1500" min="500" max="10000"
             style="width:80px" onchange="onPollIntervalChange(this.value)"/>
         </div>
         <div class="setting-row">
@@ -464,7 +464,7 @@ var _strategyEntries = [];
 var _strategyDirty   = false;
 var _skillList       = [];
 var _pollTimer       = null;
-var _pollIntervalMs  = 5000;
+var _pollIntervalMs  = 1500;
 var _isRunning       = false;
 var _toastTimer      = null;
 var _stopStage       = 0;
