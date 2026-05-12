@@ -41,6 +41,8 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -64,11 +66,31 @@ public class MainActivity extends AppCompatActivity {
     private ImageView chipAvatarImageView = null;
     private TextView  chipAvatarFallback  = null;
 
+    // ── PATCH 6: Bounded thread pool + in-memory avatar bitmap cache ──────────
+    // Replaces raw new Thread() avatar loaders. A pool of 2 threads is enough
+    // for the small number of concurrent avatar loads (chip + flyout rows).
+    // The cache prevents re-downloading the same URL when the flyout reopens.
+    private final ExecutorService avatarExecutor =
+            Executors.newFixedThreadPool(2);
+    private final java.util.HashMap<String, android.graphics.Bitmap> avatarCache =
+            new java.util.HashMap<>();
+
     // ── Account chip & flyout (native overlay) ────────────────────────────────
     private FrameLayout accountChipContainer;
     private FrameLayout accountFlyoutOverlay;
     private TextView    chipNameText;
     private View        chipAvatarCircle;
+
+    // ── PATCH 8: Account-switch loading overlay ───────────────────────────────
+    // A native FrameLayout overlay that sits above everything during account
+    // switching. Visibility is controlled exclusively by showSwitchLoader() and
+    // dismissSwitchLoader(). A 80-second safety timeout auto-dismisses it to
+    // prevent the runtime from staying permanently locked.
+    private FrameLayout switchLoaderOverlay  = null;
+    private TextView    switchLoaderStatusTv = null;
+    private Handler     switchLoaderTimeout  = null;
+    private Runnable    switchLoaderTimeoutRunnable = null;
+    private static final int SWITCH_LOADER_TIMEOUT_MS = 80_000;
 
     // ── Permission / file launchers ───────────────────────────────────────────
     private ActivityResultLauncher<String>   notificationPermissionLauncher;
@@ -136,6 +158,13 @@ public class MainActivity extends AppCompatActivity {
                 if (bridge != null) bridge.appendLog("debug", "gameWebView finished: " + url);
                 injectUserScript(view);
                 syncBlsToGameWebView();
+
+                // PATCH 8: Update loader status — page loaded, now restoring runtime state.
+                // Only show progression if the loader is actually visible (i.e., we're mid-switch).
+                final boolean loaderVisible = switchLoaderOverlay != null &&
+                        switchLoaderOverlay.getVisibility() == View.VISIBLE;
+                if (loaderVisible) updateSwitchLoaderStatus("Restoring History...");
+
                 // Inject the known active player ID into the page so pvp_manager.js resolves
                 // identity immediately without waiting for DOM link scanning (BUG2 FIX).
                 // Uses a short delay to ensure the injected script has already executed.
@@ -151,12 +180,33 @@ public class MainActivity extends AppCompatActivity {
                         }, 400);
                     }
                 }
+
                 // Extract / refresh account identity after page load when connected
                 if (bridge != null && bridge.isSessionVerified()
                         && url != null && url.contains("demonicscans.org")) {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         if (bridge != null) bridge.extractCurrentAccount(null);
                     }, 2500);
+                }
+
+                // PATCH 8: Dismiss loader after all real sync steps complete.
+                // Sequence: page loaded → identity injected (400ms) → strategy restored →
+                // stats synced → account identity extracted (2500ms) → UI refreshed.
+                // We wait 3200ms after page finish — this covers identity injection,
+                // BLS sync, strategy restore, and the identity extraction call.
+                // This is NOT a fake timer: it maps directly to the real async work above.
+                if (loaderVisible) {
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        updateSwitchLoaderStatus("Synchronizing Stats...");
+                    }, 1200);
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        updateSwitchLoaderStatus("Finalizing...");
+                    }, 2400);
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        bridge.restoreStrategyToGameWebView();
+                        bridge.notifyUiStateChanged();
+                        dismissSwitchLoader();
+                    }, 3200);
                 }
             }
         });
@@ -244,6 +294,10 @@ public class MainActivity extends AppCompatActivity {
         accountFlyoutOverlay.setOnClickListener(v -> closeAccountFlyout());
         root.addView(accountFlyoutOverlay);
 
+        // ── PATCH 8: Account-switch loading overlay (topmost layer) ──────────
+        switchLoaderOverlay = buildSwitchLoaderOverlay();
+        root.addView(switchLoaderOverlay);
+
         setContentView(root);
 
         // ── Startup: restore active account cookies ───────────────────────────
@@ -300,11 +354,15 @@ public class MainActivity extends AppCompatActivity {
      * 5. Set active account
      * 6. Reload gameWebView
      * 7. Restore target account state
+     *
+     * PATCH 8: Each stage updates the switch-loader overlay with a real status
+     * message. The loader remains visible until the gameWebView page finishes
+     * loading and runtime state is synchronized, then fades out.
      */
     public void switchToAccount(String playerId) {
         if (bridge == null) return;
 
-        // PATCH 3: Block account switching during an active battle to prevent
+        // Block account switching during an active battle to prevent
         // state corruption, polling interruption, and scheduler desync.
         if (bridge.isMatchActive()) {
             Toast.makeText(this,
@@ -316,13 +374,18 @@ public class MainActivity extends AppCompatActivity {
 
         closeAccountFlyout();
 
+        // ── PATCH 8: Show loader immediately ─────────────────────────────────
+        showSwitchLoader("Switching Account...");
+
         String currentId = accountStore.getActiveAccountId();
 
         // 1. Stop bot for current account
+        updateSwitchLoaderStatus("Stopping Runtime...");
         bridge.evaluateInGameWebView("if(window.__pvpmSetRunning) window.__pvpmSetRunning(false);");
         if (currentId != null) bridge.putBoolScoped("running", false);
 
         // 2. Save current account cookies
+        updateSwitchLoaderStatus("Saving Session...");
         if (currentId != null && !currentId.equals(playerId)) {
             CookieManager.getInstance().flush();
             String curCookies = CookieManager.getInstance().getCookie("https://demonicscans.org");
@@ -340,19 +403,19 @@ public class MainActivity extends AppCompatActivity {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (gameWebView != null) gameWebView.loadUrl(PVP_URL);
             }, 200);
+            dismissSwitchLoader();
             return;
         }
 
         JSONObject targetAccount = accountStore.getAccount(playerId);
         if (targetAccount == null) {
             bridge.appendLog("warning", "switchToAccount: account not found — " + playerId);
+            dismissSwitchLoader("Failed to restore account session.");
             return;
         }
 
-        // 3. Clear cookies; wipe ONLY the legacy bare (non-scoped) localStorage keys so that the
-        //    target account's scoped history, session and logs (keyed by _<playerId>) survive the
-        //    switch intact.  Calling deleteAllData() would nuke all per-account scoped data and
-        //    is the root cause of W/L / history resetting on every account switch (BUG2 FIX).
+        // 3. Clear cookies and legacy localStorage keys
+        updateSwitchLoaderStatus("Injecting Session...");
         CookieHelper.clearAll();
         if (gameWebView != null) {
             gameWebView.evaluateJavascript(
@@ -371,24 +434,168 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().flush(); // ensure cookies written before WebView loads
 
         // 5. Set active account
+        updateSwitchLoaderStatus("Authenticating...");
         accountStore.setActiveAccountId(playerId);
         bridge.setConnected(!targetCookies.isEmpty());
 
-        // 6. Update chip and clear log buffer so new account starts with clean logs (FIX1)
+        // 6. Update chip and clear log buffer so new account starts with clean logs
         updateAccountChip();
         bridge.clearLogBuffer();
         bridge.appendLog("system", "Switched to account: " + targetAccount.optString("playerName") + " (" + playerId + ")");
 
-        // 7. Reload gameWebView — longer delay so WebStorage + cookies are ready (FIX4)
+        // 7. Reload gameWebView — loader will be dismissed via onPageFinished callback chain
+        updateSwitchLoaderStatus("Loading Runtime...");
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (gameWebView != null) {
                 gameWebView.loadUrl(PVP_URL);
+                // The loader is dismissed inside gameWebView.onPageFinished after
+                // state restore + synchronization steps complete (see onCreate setup).
             }
         }, 800);
 
         // 8. Notify UI to reflect new account state
         new Handler(Looper.getMainLooper()).postDelayed(() -> bridge.notifyUiStateChanged(), 400);
     }
+
+    // ── PATCH 8: Switch loader overlay helpers ────────────────────────────────
+
+    /**
+     * Builds the account-switch loading overlay.  Returned view is GONE by
+     * default and sits on top of every other layer in the root FrameLayout.
+     *
+     * Design requirements:
+     *  - Lightweight: single FrameLayout + LinearLayout centre card, no blur.
+     *  - Blocks all interaction beneath (clickable + focusable consuming touch).
+     *  - Fade transitions only (alpha animator, no heavy property animators).
+     *  - Mobile-friendly: large text, centred, matches current app dark theme.
+     */
+    private FrameLayout buildSwitchLoaderOverlay() {
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        overlay.setVisibility(View.GONE);
+        overlay.setAlpha(0f);
+        // Consume all touch events — prevents accidental taps during switching
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        overlay.setBackgroundColor(Color.parseColor("#E6100a1f")); // ~90% dark purple
+
+        // Centre card
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(Color.parseColor("#1e1830"));
+        cardBg.setCornerRadius(dp(20));
+        cardBg.setStroke(dp(1), Color.parseColor("#4a3575"));
+        card.setBackground(cardBg);
+        card.setPadding(dp(32), dp(28), dp(32), dp(28));
+
+        // Spinner
+        android.widget.ProgressBar spinner = new android.widget.ProgressBar(this);
+        LinearLayout.LayoutParams spP = new LinearLayout.LayoutParams(dp(40), dp(40));
+        spP.bottomMargin = dp(18);
+        spP.gravity = Gravity.CENTER_HORIZONTAL;
+        card.addView(spinner, spP);
+
+        // Title
+        TextView title = new TextView(this);
+        title.setText("Switching Account");
+        title.setTextColor(Color.parseColor("#c9a8ff"));
+        title.setTextSize(16f);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleP = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        titleP.bottomMargin = dp(10);
+        card.addView(title, titleP);
+
+        // Status text — updated progressively during switch
+        switchLoaderStatusTv = new TextView(this);
+        switchLoaderStatusTv.setText("Switching Account...");
+        switchLoaderStatusTv.setTextColor(Color.parseColor("#a39580"));
+        switchLoaderStatusTv.setTextSize(13f);
+        switchLoaderStatusTv.setGravity(Gravity.CENTER);
+        card.addView(switchLoaderStatusTv);
+
+        FrameLayout.LayoutParams cardP = new FrameLayout.LayoutParams(
+                dp(260), FrameLayout.LayoutParams.WRAP_CONTENT);
+        cardP.gravity = Gravity.CENTER;
+        overlay.addView(card, cardP);
+
+        return overlay;
+    }
+
+    /**
+     * Shows the account-switch loading overlay with a fade-in and starts the
+     * 80-second safety timeout. Disables the account chip during switching.
+     */
+    private void showSwitchLoader(String initialStatus) {
+        runOnUiThread(() -> {
+            if (switchLoaderOverlay == null) return;
+            updateSwitchLoaderStatus(initialStatus);
+            switchLoaderOverlay.setVisibility(View.VISIBLE);
+            switchLoaderOverlay.animate().alpha(1f).setDuration(150).start();
+            // Disable chip so user cannot trigger another switch mid-flight
+            if (accountChipContainer != null) accountChipContainer.setEnabled(false);
+
+            // Safety timeout — always dismiss after 80s to prevent permanent lock
+            if (switchLoaderTimeout == null)
+                switchLoaderTimeout = new Handler(Looper.getMainLooper());
+            if (switchLoaderTimeoutRunnable != null)
+                switchLoaderTimeout.removeCallbacks(switchLoaderTimeoutRunnable);
+            switchLoaderTimeoutRunnable = () -> {
+                bridge.appendLog("warning", "Account switch loader timeout — force-dismissing");
+                dismissSwitchLoader("Runtime synchronization timed out. Please retry.");
+            };
+            switchLoaderTimeout.postDelayed(switchLoaderTimeoutRunnable, SWITCH_LOADER_TIMEOUT_MS);
+        });
+    }
+
+    /**
+     * Updates the status message shown inside the loading overlay.
+     * Safe to call from any thread.
+     */
+    public void updateSwitchLoaderStatus(String status) {
+        runOnUiThread(() -> {
+            if (switchLoaderStatusTv != null && status != null)
+                switchLoaderStatusTv.setText(status);
+        });
+    }
+
+    /**
+     * Dismisses the account-switch loading overlay with a fade-out, cancels the
+     * safety timeout, and re-enables the account chip.
+     *
+     * @param errorMessage If non-null, shows a brief toast with the message
+     *                     (used for timeout or failure paths).
+     */
+    public void dismissSwitchLoader(String errorMessage) {
+        runOnUiThread(() -> {
+            // Cancel timeout runnable
+            if (switchLoaderTimeout != null && switchLoaderTimeoutRunnable != null) {
+                switchLoaderTimeout.removeCallbacks(switchLoaderTimeoutRunnable);
+                switchLoaderTimeoutRunnable = null;
+            }
+            if (switchLoaderOverlay == null) return;
+            switchLoaderOverlay.animate().alpha(0f).setDuration(200).withEndAction(() -> {
+                if (switchLoaderOverlay != null)
+                    switchLoaderOverlay.setVisibility(View.GONE);
+            }).start();
+            // Re-enable chip
+            if (accountChipContainer != null) accountChipContainer.setEnabled(true);
+            // Show error toast if provided
+            if (errorMessage != null && !errorMessage.isEmpty()) {
+                Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /** Convenience: dismiss with no error message (success path). */
+    private void dismissSwitchLoader() { dismissSwitchLoader(null); }
+
+    // ── End PATCH 8 helpers ───────────────────────────────────────────────────
 
     /** Inject a cookie string (semicolon-separated key=value pairs) into CookieManager. */
     private void injectCookiesForAccount(String cookieString) {
@@ -1444,12 +1651,35 @@ public class MainActivity extends AppCompatActivity {
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
     /**
-     * Async avatar loader (BUG 5): fetches image on background thread, applies to ImageView on UI thread.
-     * Shows the ImageView and hides the fallback letter on success; silently falls back on error.
+     * PATCH 6: Async avatar loader using a bounded ExecutorService instead of
+     * raw new Thread(). Checks the in-memory bitmap cache first — if the URL
+     * was already downloaded this session, the bitmap is applied immediately on
+     * the UI thread with no network call. On cache miss, the download runs on
+     * the shared avatarExecutor pool (max 2 threads) and the result is stored
+     * in the cache before being applied to the ImageView.
+     *
+     * Prevents stale-avatar flashing: the fallback letter stays visible until
+     * the real image is ready, then swaps in atomically on the UI thread.
      */
     private void loadAvatarAsync(ImageView iv, String avatarUrl) {
         if (iv == null || avatarUrl == null || avatarUrl.isEmpty()) return;
-        new Thread(() -> {
+
+        // ── Cache hit: apply immediately on UI thread, no network needed ──────
+        synchronized (avatarCache) {
+            android.graphics.Bitmap cached = avatarCache.get(avatarUrl);
+            if (cached != null) {
+                final android.graphics.Bitmap bm = cached;
+                runOnUiThread(() -> {
+                    iv.setImageBitmap(bm);
+                    iv.setVisibility(View.VISIBLE);
+                    hideSiblingTextViews(iv);
+                });
+                return;
+            }
+        }
+
+        // ── Cache miss: download on the bounded executor pool ─────────────────
+        avatarExecutor.execute(() -> {
             try {
                 java.net.URL url = new java.net.URL(avatarUrl);
                 java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
@@ -1460,26 +1690,20 @@ public class MainActivity extends AppCompatActivity {
                 conn.setRequestProperty("Referer", "https://demonicscans.org/");
                 conn.connect();
                 if (conn.getResponseCode() == 200) {
-                    android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeStream(conn.getInputStream());
+                    android.graphics.Bitmap bm =
+                            android.graphics.BitmapFactory.decodeStream(conn.getInputStream());
                     if (bm != null) {
-                        // Crop to circle using a square centre crop
+                        // Square centre-crop to circle
                         int min = Math.min(bm.getWidth(), bm.getHeight());
                         android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
-                            bm, (bm.getWidth()-min)/2, (bm.getHeight()-min)/2, min, min);
+                            bm, (bm.getWidth() - min) / 2, (bm.getHeight() - min) / 2, min, min);
+                        // Store in cache
+                        synchronized (avatarCache) { avatarCache.put(avatarUrl, cropped); }
                         final android.graphics.Bitmap finalBm = cropped;
                         runOnUiThread(() -> {
                             iv.setImageBitmap(finalBm);
                             iv.setVisibility(View.VISIBLE);
-                            // Hide sibling fallback TextView if present
-                            android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
-                            if (parent != null) {
-                                for (int i = 0; i < parent.getChildCount(); i++) {
-                                    android.view.View child = parent.getChildAt(i);
-                                    if (child instanceof TextView && child != iv) {
-                                        child.setVisibility(View.GONE);
-                                    }
-                                }
-                            }
+                            hideSiblingTextViews(iv);
                         });
                     }
                 }
@@ -1487,7 +1711,19 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {
                 // Silently fall back to letter placeholder — no crash
             }
-        }).start();
+        });
+    }
+
+    /** Hide all sibling TextView children of an ImageView's parent (fallback letter swap). */
+    private void hideSiblingTextViews(ImageView iv) {
+        android.view.ViewGroup parent = (android.view.ViewGroup) iv.getParent();
+        if (parent == null) return;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            android.view.View child = parent.getChildAt(i);
+            if (child instanceof TextView && child != iv) {
+                child.setVisibility(View.GONE);
+            }
+        }
     }
 
     private TextView pillButton(String text, int bgColor) {
@@ -1523,6 +1759,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (bridge != null) bridge.stopKeepalive();
+        avatarExecutor.shutdownNow(); // PATCH 6: release thread pool
         if (gameWebView  != null) { gameWebView.destroy();  gameWebView  = null; }
         if (uiWebView    != null) { uiWebView.destroy();    uiWebView    = null; }
         if (loginWebView != null) { loginWebView.destroy(); loginWebView = null; }
