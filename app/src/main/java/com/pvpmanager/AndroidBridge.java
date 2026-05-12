@@ -421,12 +421,21 @@ public class AndroidBridge {
             }
 
             String gameLogs = "";
-            String cachedForLogs = getStringScoped(KEY_CACHED_LIVE, null);
-            if (cachedForLogs != null) {
+            // PATCH 4: Parse KEY_CACHED_LIVE JSON only once per getState() call.
+            // Previously the same string was fetched and parsed twice (once for
+            // gameLogs, once for match/stats/history). Now we parse it once and
+            // reuse the parsed object for both purposes.
+            String cachedLive = getStringScoped(KEY_CACHED_LIVE, null);
+            JSONObject live = null;
+            if (cachedLive != null) {
                 try {
-                    JSONObject liveForLogs = new JSONObject(cachedForLogs);
-                    gameLogs = liveForLogs.optString("gameLogs", "");
-                } catch (JSONException ignored) {}
+                    live = new JSONObject(cachedLive);
+                    gameLogs = live.optString("gameLogs", "");
+                } catch (JSONException ignored) {
+                    appendLog("warning", "cached_live_state malformed — clearing");
+                    removeScoped(KEY_CACHED_LIVE);
+                    live = null;
+                }
             }
 
             String systemLogs = sb.toString();
@@ -441,10 +450,8 @@ public class AndroidBridge {
             state.put("logs", combinedLogs);
 
             boolean liveLoaded = false;
-            String cachedLive = getStringScoped(KEY_CACHED_LIVE, null);
-            if (cachedLive != null) {
+            if (live != null) {
                 try {
-                    JSONObject live = new JSONObject(cachedLive);
                     state.put("match",        live.optJSONObject("match")       != null ? live.getJSONObject("match")       : new JSONObject());
                     state.put("stats",        live.optJSONObject("stats")       != null ? live.getJSONObject("stats")       : new JSONObject());
                     state.put("skillList",    live.optJSONArray("skillList")    != null ? live.getJSONArray("skillList")    : new JSONArray());
@@ -453,10 +460,7 @@ public class AndroidBridge {
                         state.put("battleStats", live.getJSONObject("battleStats"));
                     }
                     liveLoaded = true;
-                } catch (JSONException ignored) {
-                    appendLog("warning", "cached_live_state malformed — clearing");
-                    removeScoped(KEY_CACHED_LIVE);
-                }
+                } catch (JSONException ignored) {}
             }
             if (!liveLoaded) {
                 state.put("match",        new JSONObject("{\"active\":false}"));
