@@ -3598,7 +3598,9 @@
                     // If running=true but the lock was acquired very long ago
                     // and no cycle has ticked recently, the lock is likely stale.
                     // Safe threshold: FETCH_TIMEOUT_MS (28s) × 3 + generous buffer.
-                    if (lockAge > 120_000 && cycleIdle > 120_000) {
+                    // PATCH 2: Raised from 120_000 to 300_000 to prevent false
+                    // recoveries during long battles, server lag, mobile throttling.
+                    if (lockAge > 300_000 && cycleIdle > 300_000) {
                         if (_wdRecoveryCount < WD_RECOVERY_LIMIT &&
                             (now_ts - _wdRecoveryLastTs) > WD_RECOVERY_COOLDOWN) {
                             _wdRecoveryCount++;
@@ -3614,7 +3616,9 @@
                     }
 
                     // ── PATCH 1: Cycle stall detection & staged recovery ─────
-                    if (cycleIdle > 120_000) {
+                    // PATCH 2: Raised from 120_000 to 300_000 to prevent false
+                    // recoveries during long PvP battles, server lag, mobile throttling.
+                    if (cycleIdle > 300_000) {
                         if (_wdRecoveryCount >= WD_RECOVERY_LIMIT) {
                             addLog(
                                 '❌ [Watchdog] Recovery limit reached (' + WD_RECOVERY_LIMIT + '). Stopping to prevent loop.',
@@ -3960,6 +3964,11 @@
             }
 
             lastPoll = poll;
+
+            // PATCH 1: Heartbeat — update _lastCycleTs on every valid poll response
+            // so the watchdog knows the runtime is active during long battles.
+            // Only fires when: runtime is running, poll is valid, battle is alive.
+            if (running && !stopFlag) _lastCycleTs = Date.now();
 
             // Update HP bars from poll data
             updateHpFromState(poll);
