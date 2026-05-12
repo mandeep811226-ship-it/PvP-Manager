@@ -3573,6 +3573,11 @@
                 //   arrive — the activity-based battle timeout system (PATCH 3).
                 let _cycleErrors           = 0;
                 let _lastCycleTs           = Date.now();
+                // FIX: also expose _lastCycleTs on window so nested inner scopes
+                // (e.g. the battle poll loop) can update it without hitting a
+                // "not defined" ReferenceError. Mirrors the existing pattern used
+                // by window._pvpmLastBattleActivityTs.
+                window._pvpmLastCycleTs    = _lastCycleTs;
                 let _wdRecoveryCount       = 0;    // PATCH 1: total watchdog recoveries
                 let _wdRecoveryLastTs      = 0;    // PATCH 1: last recovery wall-clock
                 const WD_RECOVERY_COOLDOWN = 30_000;   // min gap between watchdog recoveries
@@ -3590,7 +3595,7 @@
                     if (!running) return;
 
                     const now_ts     = Date.now();
-                    const cycleIdle  = now_ts - _lastCycleTs;
+                    const cycleIdle  = now_ts - (window._pvpmLastCycleTs || now_ts);
                     const battleIdle = now_ts - (window._pvpmLastBattleActivityTs || now_ts);
                     const lockAge    = now_ts - _cycleLockTs;
 
@@ -3641,7 +3646,7 @@
                                 { color: '#ff7043' }
                             );
                             console.warn('[PvP Manager] Watchdog stage-1 soft recovery. Idle: ' + idleSec + 's');
-                            _lastCycleTs = now_ts; // give it another interval before escalating
+                            _lastCycleTs = now_ts; window._pvpmLastCycleTs = now_ts; // give it another interval before escalating
 
                         } else if (_wdRecoveryCount <= 3) {
                             // Stage 2 — hard scheduler recovery: stop flag allows the
@@ -3696,7 +3701,7 @@
                             pendingMatchCapture = null;
                             try { resetHpBars(); } catch (_) {}
                             window._pvpmLastBattleActivityTs = Date.now(); // prevent re-trigger
-                            _lastCycleTs = Date.now();
+                            _lastCycleTs = Date.now(); window._pvpmLastCycleTs = _lastCycleTs;
 
                         } else if (battleIdle > 360_000) {
                             // Stage 2 (6 min): force re-poll by poking the activity ts
@@ -3727,7 +3732,7 @@
                 // internally) the scheduler always advances to the next iteration
                 // or exits cleanly. scheduleNextCycle equivalent = continue/break.
                 while (!stopFlag) {
-                    _lastCycleTs = Date.now();
+                    _lastCycleTs = Date.now(); window._pvpmLastCycleTs = _lastCycleTs;
                     _cycleLockTs = Date.now(); // PATCH 4: refresh lock timestamp each cycle
                     let _cycleResult;
                     try {
@@ -3750,7 +3755,7 @@
                         }
                         // PATCH 5: finally-equivalent: ensure we always re-arm
                         await sleep(10_000);
-                        _lastCycleTs = Date.now(); // reset so watchdog doesn't double-fire
+                        _lastCycleTs = Date.now(); window._pvpmLastCycleTs = _lastCycleTs; // reset so watchdog doesn't double-fire
                         continue; // guaranteed re-arm: try next cycle
                     } finally {
                         // PATCH 5: This block runs whether _cycleResult is set, an
@@ -3768,7 +3773,7 @@
                         // Log already emitted by runOneCycle — just wait and retry.
                         addLog('🔄 Scheduler: retrying in 10s...', { color: '#ffb74d' });
                         await sleep(10_000);
-                        _lastCycleTs = Date.now();
+                        _lastCycleTs = Date.now(); window._pvpmLastCycleTs = _lastCycleTs;
                         continue;
                     }
 
@@ -3967,8 +3972,9 @@
 
             // PATCH 1: Heartbeat — update _lastCycleTs on every valid poll response
             // so the watchdog knows the runtime is active during long battles.
-            // Only fires when: runtime is running, poll is valid, battle is alive.
-            if (running && !stopFlag) _lastCycleTs = Date.now();
+            // Written to window._pvpmLastCycleTs (the shared window reference) so
+            // this inner scope can reach it without a ReferenceError.
+            if (running && !stopFlag) window._pvpmLastCycleTs = Date.now();
 
             // Update HP bars from poll data
             updateHpFromState(poll);
@@ -4464,6 +4470,12 @@
     } // end runFeature
 
     if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+    } else {
+        boot();
+    }
+})();
+') {
         document.addEventListener('DOMContentLoaded', boot);
     } else {
         boot();
